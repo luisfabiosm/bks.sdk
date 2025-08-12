@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>bks.sdk</AssemblyName>
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <!-- Core -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.0" />
+    <PackageReference Include="MongoDB.Driver" Version="3.4.2" />
+    <PackageReference Include="Npgsql" Version="8.0.7" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.58" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.6" />
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+
+
+
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <Folder Include="Core\Events\" />
+    <Folder Include="Core\Exceptions\" />
+    <Folder Include="Core\Results\" />
+    <Folder Include="Core\Observability\" />
+    <Folder Include="Transactions\Security\" />
+    <Folder Include="Transactions\Processing\" />
+  </ItemGroup>
+
+</Project>
