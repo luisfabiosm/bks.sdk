@@ -2099,9 +2099,7 @@ public class DebitoTransactionValidator : AbstractValidator<DebitoRequest>
 
 ### Canais de Suporte
 
-- 📧 **Email**: suporte@bks.com
-- 💬 **Teams**: Canal #bks-sdk-support
-- 🎫 **Tickets**: Sistema interno de tickets
+- 📧 **Email**: fabio@backside.com
 - 📖 **Documentação**: Portal interno BKS
 - 🧪 **Exemplos**: [Repositório de exemplos](https://github.com/bks-sdk/examples)
 
