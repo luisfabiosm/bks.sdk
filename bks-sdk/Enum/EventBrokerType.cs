@@ -1,4 +1,4 @@
-namespace bks.sdk.Events;
+namespace bks.sdk.Enum;
 
 public enum EventBrokerType
 {

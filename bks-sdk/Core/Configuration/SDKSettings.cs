@@ -1,4 +1,4 @@
-using bks.sdk.Events;
+using bks.sdk.Enum;
 
 namespace bks.sdk.Core.Configuration;
 
@@ -9,6 +9,7 @@ public class SDKSettings
     public RedisSettings Redis { get; set; } = new();
     public JwtSettings Jwt { get; set; } = new();
     public EventBrokerSettings EventBroker { get; set; } = new();
+    public ObservabilitySettings Observability { get; set; } = new();
 }
 
 public class RedisSettings
@@ -30,4 +31,11 @@ public class EventBrokerSettings
     public EventBrokerType BrokerType { get; set; }
     public string ConnectionString { get; set; } = string.Empty;
     public Dictionary<string, string> AdditionalSettings { get; set; } = new();
+}
+
+public class ObservabilitySettings
+{
+    public string ServiceName { get; set; } = "bks.sdk.Service";
+    public string ServiceVersion { get; set; } = "1.0.0";
+    public string JaegerEndpoint { get; set; } = string.Empty;
 }
