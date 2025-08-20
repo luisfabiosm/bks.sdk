@@ -14,11 +14,11 @@ namespace bks.sdk.Transactions
     public class TransactionTokenService : ITransactionTokenService
     {
         private readonly ILicenseValidator _licenseValidator;
-        private readonly ILogger _logger;
+        private readonly IBKSLogger _logger;
 
         public TransactionTokenService(
             ILicenseValidator licenseValidator,
-            ILogger logger)
+            IBKSLogger logger)
         {
             _licenseValidator = licenseValidator;
             _logger = logger;

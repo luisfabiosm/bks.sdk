@@ -11,9 +11,9 @@ namespace bks.sdk.Core.Middlewares
     public class TransactionCorrelationMiddleware
     {
         private readonly RequestDelegate _next;
-        private readonly bks.sdk.Observability.Logging.ILogger _logger;
+        private readonly bks.sdk.Observability.Logging.IBKSLogger _logger;
 
-        public TransactionCorrelationMiddleware(RequestDelegate next, bks.sdk.Observability.Logging.ILogger logger)
+        public TransactionCorrelationMiddleware(RequestDelegate next, bks.sdk.Observability.Logging.IBKSLogger logger)
         {
             _next = next;
             _logger = logger;

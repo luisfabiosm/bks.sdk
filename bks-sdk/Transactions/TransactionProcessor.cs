@@ -8,13 +8,14 @@ namespace bks.sdk.Transactions;
 
 public abstract class TransactionProcessor : ITransactionProcessor
 {
-    private readonly ILogger _logger;
-    private readonly ITracer _tracer;
+    private readonly IBKSLogger _logger;
+    private readonly IBKSTracer _tracer;
     private readonly IEventBroker _eventBroker;
 
     protected TransactionProcessor(
-        ILogger logger,
-        ITracer tracer,
+        IServiceProvider serviceProvider,
+        IBKSLogger logger,
+        IBKSTracer tracer,
         IEventBroker eventBroker)
     {
         _logger = logger;
@@ -34,7 +35,7 @@ public abstract class TransactionProcessor : ITransactionProcessor
             var validationResult = await ValidateTransactionAsync(transaction, cancellationToken);
             if (!validationResult.IsSuccess)
             {
-                await HandleTransactionFailureAsync(transaction, validationResult.Error!, cancellationToken);
+                await OnProcessingFailedAsync(transaction, validationResult.Error!, cancellationToken);
                 return validationResult;
             }
 
@@ -46,7 +47,7 @@ public abstract class TransactionProcessor : ITransactionProcessor
             var preProcessResult = await ExecutePreProcessingAsync(transaction, cancellationToken);
             if (!preProcessResult.IsSuccess)
             {
-                await HandleTransactionFailureAsync(transaction, preProcessResult.Error!, cancellationToken);
+                await OnProcessingFailedAsync(transaction, preProcessResult.Error!, cancellationToken);
                 return preProcessResult;
             }
 
@@ -56,7 +57,7 @@ public abstract class TransactionProcessor : ITransactionProcessor
             var processResult = await ExecuteProcessingAsync(transaction, cancellationToken);
             if (!processResult.IsSuccess)
             {
-                await HandleTransactionFailureAsync(transaction, processResult.Error!, cancellationToken);
+                await OnProcessingFailedAsync(transaction, processResult.Error!, cancellationToken);
                 return processResult;
             }
 
@@ -66,7 +67,7 @@ public abstract class TransactionProcessor : ITransactionProcessor
             var postProcessResult = await ExecutePostProcessingAsync(transaction, cancellationToken);
             if (!postProcessResult.IsSuccess)
             {
-                await HandleTransactionFailureAsync(transaction, postProcessResult.Error!, cancellationToken);
+                await OnProcessingFailedAsync(transaction, postProcessResult.Error!, cancellationToken);
                 return postProcessResult;
             }
 
@@ -87,7 +88,7 @@ public abstract class TransactionProcessor : ITransactionProcessor
         catch (Exception ex)
         {
             _logger.Error($"Erro inesperado na transação {transaction.CorrelationId}: {ex.Message}");
-            await HandleTransactionFailureAsync(transaction, ex.Message, cancellationToken);
+            await OnProcessingFailedAsync(transaction, ex.Message, cancellationToken);
             return Result.Failure($"Erro interno: {ex.Message}");
         }
     }
@@ -201,7 +202,7 @@ public abstract class TransactionProcessor : ITransactionProcessor
         }
     }
 
-    private async Task HandleTransactionFailureAsync(BaseTransaction transaction, string error, CancellationToken cancellationToken)
+    private async Task OnProcessingFailedAsync(BaseTransaction transaction, string error, CancellationToken cancellationToken)
     {
         transaction.Status = TransactionStatus.Failed;
         transaction.AddMetadata("error", error);

@@ -2,7 +2,7 @@ using System;
 
 namespace bks.sdk.Observability.Tracing;
 
-public interface ITracer : IDisposable
+public interface IBKSTracer : IDisposable
 {
     IDisposable StartSpan(string name);
 }

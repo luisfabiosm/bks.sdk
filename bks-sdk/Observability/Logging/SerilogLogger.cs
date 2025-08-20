@@ -1,6 +1,6 @@
 using Serilog;
 
-public class SerilogLogger : bks.sdk.Observability.Logging.ILogger
+public class SerilogLogger : bks.sdk.Observability.Logging.IBKSLogger
 {
     public void Info(string message) => Log.Information(message);
     public void Warn(string message) => Log.Warning(message);
