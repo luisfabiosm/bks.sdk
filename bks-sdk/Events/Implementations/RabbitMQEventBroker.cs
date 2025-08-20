@@ -15,12 +15,12 @@ public class RabbitMqEventBroker : IEventBroker, IDisposable
     private readonly IConnection _connection;
     private readonly IChannel _publishChannel;
     private readonly string _exchangeName;
-    private readonly Observability.Logging.ILogger _logger;
+    private readonly Observability.Logging.IBKSLogger _logger;
     private readonly ConcurrentDictionary<string, IChannel> _subscriptionChannels;
     private readonly SemaphoreSlim _publishSemaphore;
     private bool _disposed;
 
-    public RabbitMqEventBroker(string connectionString, Observability.Logging.ILogger logger)
+    public RabbitMqEventBroker(string connectionString, Observability.Logging.IBKSLogger logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 

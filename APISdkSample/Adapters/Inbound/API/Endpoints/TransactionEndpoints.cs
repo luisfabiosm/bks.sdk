@@ -19,7 +19,7 @@ namespace Adapters.Inbound.API.Endpoints
                               ITransactionProcessor processor,
                               CancellationToken cancellationToken) =>
             {
-                var _transaction = new EntryDebitTransaction
+                var _transaction = new TransferenciaTransaction
                 {
                     Branch = request.Branch,
                     AccountNumber = request.AccountNumber,

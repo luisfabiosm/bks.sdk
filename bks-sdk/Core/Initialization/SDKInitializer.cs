@@ -147,7 +147,7 @@ public static class SDKInitializer
             .CreateLogger();
 
         Log.Logger = logger;
-        services.AddSingleton<bks.sdk.Observability.Logging.ILogger, SerilogLogger>();
+        services.AddSingleton<bks.sdk.Observability.Logging.IBKSLogger, SerilogLogger>();
     }
 
 
@@ -204,7 +204,7 @@ public static class SDKInitializer
             case EventBrokerType.RabbitMQ:
                 services.AddSingleton<IEventBroker>(provider =>
                 {
-                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.ILogger>();
+                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.IBKSLogger>();
                     return new RabbitMqEventBroker(settings.EventBroker.ConnectionString, logger);
                 });
                 break;
@@ -212,7 +212,7 @@ public static class SDKInitializer
             case EventBrokerType.Kafka:
                 services.AddSingleton<IEventBroker>(provider =>
                 {
-                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.ILogger>();
+                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.IBKSLogger>();
                     return new KafkaEventBroker(settings.EventBroker.ConnectionString, logger);
                 });
                 break;
@@ -220,7 +220,7 @@ public static class SDKInitializer
             case EventBrokerType.GooglePubSub:
                 services.AddSingleton<IEventBroker>(provider =>
                 {
-                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.ILogger>();
+                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.IBKSLogger>();
                     return new GooglePubSubEventBroker(settings.EventBroker.ConnectionString, logger);
                 });
                 break;
@@ -268,7 +268,7 @@ public static class SDKInitializer
             });
 
         // Tracer personalizado
-        services.AddSingleton<ITracer, OpenTelemetryTracer>();
+        services.AddSingleton<IBKSTracer, OpenTelemetryTracer>();
     }
 
     private static void ConfigureTransactions(IServiceCollection services)

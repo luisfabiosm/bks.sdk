@@ -1,5 +1,5 @@
 ﻿using bks.sdk.Transactions;
-using Domain.UseCases;
+using Domain.Processors;
 
 namespace Configurations
 {
@@ -9,7 +9,7 @@ namespace Configurations
         {
 
             // Registro dos processadores de transação
-            builder.Services.AddScoped<ITransactionProcessor, EntryDebitProcessor>();
+            services.AddScoped<ITransactionProcessor, TransferenciaProcessor>();
 
             return services;
         }

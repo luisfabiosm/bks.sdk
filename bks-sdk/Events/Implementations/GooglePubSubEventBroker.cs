@@ -8,9 +8,9 @@ public class GooglePubSubEventBroker : IEventBroker, IDisposable
     private readonly PublisherClient _publisher;
     private readonly string _projectId;
     private readonly string _topicPrefix;
-    private readonly Observability.Logging.ILogger _logger;
+    private readonly Observability.Logging.IBKSLogger _logger;
 
-    public GooglePubSubEventBroker(string connectionString, Observability.Logging.ILogger logger)
+    public GooglePubSubEventBroker(string connectionString, Observability.Logging.IBKSLogger logger)
     {
         _logger = logger;
 

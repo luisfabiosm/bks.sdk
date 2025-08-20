@@ -2,7 +2,7 @@ using OpenTelemetry.Trace;
 
 namespace bks.sdk.Observability.Tracing;
 
-public class OpenTelemetryTracer : ITracer
+public class OpenTelemetryTracer : IBKSTracer
 {
     private readonly Tracer _tracer;
 

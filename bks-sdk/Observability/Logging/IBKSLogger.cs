@@ -1,6 +1,6 @@
 namespace bks.sdk.Observability.Logging;
 
-public interface ILogger
+public interface IBKSLogger
 {
     void Info(string message);
     void Warn(string message);

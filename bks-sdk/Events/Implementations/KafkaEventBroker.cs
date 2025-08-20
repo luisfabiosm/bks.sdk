@@ -9,9 +9,9 @@ public class KafkaEventBroker : IEventBroker, IDisposable
     private readonly IProducer<string, string> _producer;
     private readonly ProducerConfig _producerConfig;
     private readonly string _topicPrefix;
-    private readonly Observability.Logging.ILogger _logger;
+    private readonly Observability.Logging.IBKSLogger _logger;
 
-    public KafkaEventBroker(string connectionString, Observability.Logging.ILogger logger)
+    public KafkaEventBroker(string connectionString, Observability.Logging.IBKSLogger logger)
     {
         _logger = logger;
         _topicPrefix = "bks-sdk-events";
