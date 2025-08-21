@@ -14,9 +14,9 @@ public abstract class TransactionProcessor : ITransactionProcessor
 
     protected TransactionProcessor(
         IServiceProvider serviceProvider,
-        IBKSLogger logger,
-        IBKSTracer tracer,
-        IEventBroker eventBroker)
+        IBKSLogger? logger,
+        IBKSTracer? tracer,
+        IEventBroker? eventBroker)
     {
         _logger = logger;
         _tracer = tracer;
@@ -92,6 +92,8 @@ public abstract class TransactionProcessor : ITransactionProcessor
             return Result.Failure($"Erro interno: {ex.Message}");
         }
     }
+
+
 
 
     private async Task<Result> ValidateTransactionAsync(BaseTransaction transaction, CancellationToken cancellationToken)
