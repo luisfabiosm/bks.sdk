@@ -1,7 +1,6 @@
 using Adapters.Inbound.API.Extensions;
 using bks.sdk.Core.Initialization;
-using bks.sdk.Transactions;
-using Domain.UseCases;
+
 
 var builder = WebApplication.CreateBuilder(args);
 

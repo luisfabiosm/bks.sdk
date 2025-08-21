@@ -21,8 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Adapters\Outbound\" />
-    <Folder Include="Domain\Core\DTOs\Response\" />
+    <Folder Include="Adapters\Outbound\NotificationAdapter\" />
   </ItemGroup>
 
 </Project>

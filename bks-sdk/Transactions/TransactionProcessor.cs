@@ -6,11 +6,82 @@ using bks.sdk.Enum;
 
 namespace bks.sdk.Transactions;
 
+public abstract class TransactionProcessor<TResult> : ITransactionProcessor<TResult>
+{
+    protected readonly IBKSLogger _logger;
+    protected readonly IBKSTracer _tracer;
+    protected readonly IEventBroker _eventBroker;
+
+    protected TransactionProcessor(
+       IServiceProvider serviceProvider,
+       IBKSLogger? logger,
+       IBKSTracer? tracer,
+       IEventBroker? eventBroker)
+    {
+        _logger = logger;
+        _tracer = tracer;
+        _eventBroker = eventBroker;
+    }
+
+
+    public async Task<Result<TResult>> ExecuteAsync(BaseTransaction transaction, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // 1. Validação da transação
+            var validation = transaction.ValidateTransaction();
+            if (!validation.IsValid)
+                return Result<TResult>.Failure(string.Join("; ", validation.Errors));
+
+            // 2. Pré-processamento
+            var preProcessResult = await PreProcessAsync(transaction, cancellationToken);
+            if (!preProcessResult.IsSuccess)
+                return Result<TResult>.Failure(preProcessResult.Error!);
+
+            // 3. Processamento principal (retorna resultado tipado)
+            var processResult = await ProcessAsync(transaction, cancellationToken);
+            if (!processResult.IsSuccess)
+            {
+                // Se falhou, executar compensação
+                await CompensateAsync(transaction, cancellationToken);
+                return Result<TResult>.Failure(processResult.Error!);
+            }
+
+            // 4. Pós-processamento (recebe resultado tipado)
+            var postProcessResult = await PostProcessAsync(transaction, processResult.Value!, cancellationToken);
+            // Pós-processamento não afeta o sucesso da transação
+
+            return processResult; // Retorna o resultado tipado
+        }
+        catch (Exception ex)
+        {
+            await CompensateAsync(transaction, cancellationToken);
+            return Result<TResult>.Failure($"Erro interno: {ex.Message}");
+        }
+    }
+
+    // Métodos abstratos/virtuais
+    public abstract bool CanProcess(BaseTransaction transaction);
+
+    protected virtual async Task<Result> PreProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken)
+        => Result.Success();
+
+    protected abstract Task<Result<TResult>> ProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken);
+
+    protected virtual async Task<Result> PostProcessAsync(BaseTransaction transaction, TResult processResult, CancellationToken cancellationToken)
+        => Result.Success();
+
+    protected virtual async Task<Result> CompensateAsync(BaseTransaction transaction, CancellationToken cancellationToken)
+        => Result.Success();
+}
+
+
+
 public abstract class TransactionProcessor : ITransactionProcessor
 {
-    private readonly IBKSLogger _logger;
-    private readonly IBKSTracer _tracer;
-    private readonly IEventBroker _eventBroker;
+    protected readonly IBKSLogger _logger;
+    protected readonly IBKSTracer _tracer;
+    protected readonly IEventBroker _eventBroker;
 
     protected TransactionProcessor(
         IServiceProvider serviceProvider,
@@ -22,6 +93,8 @@ public abstract class TransactionProcessor : ITransactionProcessor
         _tracer = tracer;
         _eventBroker = eventBroker;
     }
+
+    public abstract bool CanProcess(BaseTransaction transaction);
 
     public async Task<Result> ExecuteAsync(BaseTransaction transaction, CancellationToken cancellationToken = default)
     {
@@ -92,8 +165,6 @@ public abstract class TransactionProcessor : ITransactionProcessor
             return Result.Failure($"Erro interno: {ex.Message}");
         }
     }
-
-
 
 
     private async Task<Result> ValidateTransactionAsync(BaseTransaction transaction, CancellationToken cancellationToken)
