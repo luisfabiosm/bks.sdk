@@ -8,13 +8,10 @@ namespace Adapters.Inbound.API.Extensions
 {
     public static class WebApiExtensions
     {
-        public static IServiceCollection addWebApiEndpoints(this IServiceCollection services, IConfiguration configuration)
+        public static IServiceCollection ConfigureAPI(this IServiceCollection services, IConfiguration configuration)
         {
             services.AddEndpointsApiExplorer();
             services.ConfigureSwagger();
-            services.AddHealthChecks()
-                    .AddCheck("redis", () => HealthCheckResult.Healthy())
-                    .AddCheck("database", () => HealthCheckResult.Healthy());
 
             // Configuração de CORS
             services.AddCors(options =>

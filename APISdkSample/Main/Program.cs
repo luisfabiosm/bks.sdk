@@ -22,7 +22,7 @@ var configuration = new ConfigurationBuilder()
     .Build();
 
 builder.Services.AddBKSSDK();
-
+builder.Services.ConfigureAPI(configuration);
 var app = builder.Build();
 
 app.UseBksSdk();

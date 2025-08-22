@@ -1,8 +1,9 @@
-using bks.sdk.Observability.Logging;
-using bks.sdk.Observability.Tracing;
-using bks.sdk.Events;
 using bks.sdk.Common.Results;
 using bks.sdk.Enum;
+using bks.sdk.Events;
+using bks.sdk.Observability.Logging;
+using bks.sdk.Observability.Tracing;
+using System.Diagnostics;
 
 namespace bks.sdk.Transactions;
 
@@ -59,6 +60,8 @@ public abstract class TransactionProcessor<TResult> : ITransactionProcessor<TRes
             return Result<TResult>.Failure($"Erro interno: {ex.Message}");
         }
     }
+
+
 
     // Métodos abstratos/virtuais
     public abstract bool CanProcess(BaseTransaction transaction);

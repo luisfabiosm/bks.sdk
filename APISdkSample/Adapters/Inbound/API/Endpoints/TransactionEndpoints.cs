@@ -19,8 +19,8 @@ namespace Adapters.Inbound.API.Endpoints
 
   
             transactiongroup.MapPost("/debit", async (
-                              DebitoRequest request,
-                              DebitoProcessor processor,
+                              [FromBody] DebitoRequest request,
+                              [FromServices]  DebitoProcessor processor,
                               HttpContext context,
                               CancellationToken cancellationToken) =>
             {
@@ -91,7 +91,7 @@ namespace Adapters.Inbound.API.Endpoints
 
             transactiongroup.MapGet("/account/{numeroConta}/moviments", async (
                 string numeroConta,
-                IContaRepository contaRepository,
+                [FromServices] IContaRepository contaRepository,
                 DateTime? dataInicio,
                 DateTime? dataFim,
                 CancellationToken cancellationToken) =>
@@ -141,7 +141,7 @@ namespace Adapters.Inbound.API.Endpoints
 
             transactiongroup.MapGet("/{transacaoId}/status", async (
             string transacaoId,
-            ITransactionTokenService tokenService,
+            [FromServices] ITransactionTokenService tokenService,
             CancellationToken cancellationToken) =>
             {
                 var resultado = await tokenService.RecoverTransactionAsync<DebitoTransaction>(transacaoId);
