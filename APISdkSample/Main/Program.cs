@@ -1,7 +1,6 @@
 using Adapters.Inbound.API.Extensions;
 using bks.sdk.Core.Initialization;
-using bks.sdk.Transactions;
-using Domain.UseCases;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,7 +22,7 @@ var configuration = new ConfigurationBuilder()
     .Build();
 
 builder.Services.AddBKSSDK();
-
+builder.Services.ConfigureAPI(configuration);
 var app = builder.Build();
 
 app.UseBksSdk();

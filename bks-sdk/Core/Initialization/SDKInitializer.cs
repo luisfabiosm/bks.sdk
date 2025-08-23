@@ -1,166 +1,187 @@
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
-using OpenTelemetry.Trace;
-using OpenTelemetry.Metrics;
-using Serilog;
-using bks.sdk.Core.Configuration;
+ï»¿
 using bks.sdk.Authentication;
 using bks.sdk.Authentication.Implementations;
 using bks.sdk.Cache;
 using bks.sdk.Cache.Implementations;
-using bks.sdk.Events;
-using bks.sdk.Mediator;
-using bks.sdk.Observability.Tracing;
-using bks.sdk.Transactions;
-using bks.sdk.Core.Middlewares;
-using bks.sdk.Events.Implementations;
+using bks.sdk.Core.Configuration;
 using bks.sdk.Enum;
+using bks.sdk.Events;
+using bks.sdk.Events.Implementations;
+using bks.sdk.HealthCheck;
+using bks.sdk.Mediator;
+using bks.sdk.Observability;
+using bks.sdk.Observability.Logging;
+using bks.sdk.Transactions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
+using Serilog;
+using Serilog.Events;
+using System.Text;
 
-namespace bks.sdk.Core.Initialization;
-
-
-public static class SDKInitializer
+namespace bks.sdk.Core.Initialization
 {
 
-    public static IServiceCollection AddBKSSDK(
-        this IServiceCollection services,
-        IConfiguration? configuration = null)
+    public static class SDKInitializer
     {
-        // 1. Carregar configurações
-        var settings = LoadSDKSettings(configuration);
-        services.AddSingleton(settings);
-
-        // 2. Validar licença
-        ValidateLicense(settings);
-
-        // 3. Configurar serviços core
-        ConfigureCoreServices(services, settings);
-
-        // 4. Configurar autenticação
-        ConfigureAuthentication(services, settings);
-
-        // 5. Configurar cache
-        ConfigureCache(services, settings);
-
-        // 6. Configurar eventos
-        ConfigureEventBroker(services, settings);
-
-        // 7. Configurar mediator
-        ConfigureMediator(services);
-
-        // 8. Configurar observabilidade
-        ConfigureObservability(services, settings);
-
-        // 9. Configurar transações
-        ConfigureTransactions(services);
-
-        return services;
-    }
-
-
-    public static WebApplication UseBksSdk(this WebApplication app)
-    {
-        // 1. Middleware de autenticação
-        app.UseAuthentication();
-        app.UseAuthorization();
-
-        // 2. Middleware de observabilidade (já configurado pelo OpenTelemetry)
-
-        // 3. Middleware de correlação de transações
-        app.UseMiddleware<TransactionCorrelationMiddleware>();
-
-        // 4. Middleware de logging de requisições
-        app.UseMiddleware<RequestLoggingMiddleware>();
-
-        return app;
-    }
-
-    #region Métodos Privados de Configuração
-
-
-    private static SDKSettings LoadSDKSettings(IConfiguration? configuration)
-    {
-        var settings = new SDKSettings();
-
-        if (configuration != null)
+    
+        public static IServiceCollection AddBKSSDK(
+            this IServiceCollection services,
+            IConfiguration? configuration = null)
         {
-            // Tentar carregar do appsettings.json
-            configuration.GetSection("bkssdk").Bind(settings);
+            // 1. Carregar configuraÃ§Ãµes
+            var settings = LoadSettings(configuration);
+
+            // 2. Registrar configuraÃ§Ãµes como singleton
+            services.AddSingleton(settings);
+
+            // 3. Configurar logging (Serilog)
+            ConfigureLogging(services, settings);
+
+            // 4. Configurar autenticaÃ§Ã£o e seguranÃ§a
+            ConfigureAuthentication(services, settings);
+
+            // 5. Configurar cache distribuÃ­do
+            ConfigureCache(services, settings);
+
+            // 6. Configurar mediator pattern
+            ConfigureMediator(services);
+
+            // 7. Configurar sistema de eventos
+            ConfigureEvents(services, settings);
+
+            // 8. Configurar observabilidade (OpenTelemetry)
+            ConfigureObservability(services, settings);
+
+            // 9. Configurar processamento de transaÃ§Ãµes
+            ConfigureTransactions(services);
+
+            // 10. Configurar health checks
+            ConfigureHealthChecks(services, settings);
+
+            return services;
         }
 
-        // Se não encontrou configuração ou está incompleta, tentar arquivo dedicado
-        if (string.IsNullOrEmpty(settings.LicenseKey) || string.IsNullOrEmpty(settings.ApplicationName))
+        private static SDKSettings LoadSettings(IConfiguration? configuration)
         {
-            try
+            var settings = new SDKSettings();
+
+            if (configuration != null)
             {
-                var sdkConfigBuilder = new ConfigurationBuilder()
+                // Tentar carregar da seÃ§Ã£o 'bkssdk' da configuraÃ§Ã£o
+                var sdkSection = configuration.GetSection("bkssdk");
+                if (sdkSection.Exists())
+                {
+                    sdkSection.Bind(settings);
+                }
+                else
+                {
+                    // Fallback para seÃ§Ã£o raiz
+                    configuration.Bind(settings);
+                }
+            }
+            else
+            {
+                var configBuilder = new ConfigurationBuilder()
                     .SetBasePath(Directory.GetCurrentDirectory())
                     .AddJsonFile("sdksettings.json", optional: true, reloadOnChange: true);
 
-                var sdkConfig = sdkConfigBuilder.Build();
-                sdkConfig.Bind(settings);
+                var config = configBuilder.Build();
+                var sdkSection = config.GetSection("bkssdk");
+
+                if (sdkSection.Exists())
+                {
+                    sdkSection.Bind(settings);
+                }
             }
-            catch (Exception ex)
+
+            // Validar configuraÃ§Ãµes obrigatÃ³rias
+            ValidateSettings(settings);
+
+            return settings;
+        }
+
+        private static void ValidateSettings(SDKSettings settings)
+        {
+            var errors = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(settings.LicenseKey))
+            {
+                errors.Add("LicenseKey Ã© obrigatÃ³rio");
+            }
+
+            if (string.IsNullOrWhiteSpace(settings.ApplicationName))
+            {
+                errors.Add("ApplicationName Ã© obrigatÃ³rio");
+            }
+
+            if (string.IsNullOrWhiteSpace(settings.Jwt.SecretKey))
+            {
+                errors.Add("Jwt.SecretKey Ã© obrigatÃ³rio");
+            }
+
+            if (errors.Any())
             {
                 throw new InvalidOperationException(
-                    "Não foi possível carregar as configurações do BKS.SDK. " +
-                    "Verifique se existe um arquivo 'sdksettings.json' ou configure a seção 'BKSSDK' no appsettings.json",
-                    ex);
+                    $"ConfiguraÃ§Ãµes invÃ¡lidas do sdk: {string.Join(", ", errors)}");
             }
         }
 
-        return settings;
-    }
-
-
-    private static void ValidateLicense(SDKSettings settings)
-    {
-        if (string.IsNullOrWhiteSpace(settings.LicenseKey))
+    
+        private static void ConfigureLogging(IServiceCollection services, SDKSettings settings)
         {
-            throw new InvalidOperationException("LicenseKey do BKS.SDK não configurada");
+            // Configurar Serilog
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+                .MinimumLevel.Override("System", LogEventLevel.Warning)
+                .Enrich.FromLogContext()
+                .Enrich.WithProperty("Application", settings.ApplicationName)
+                .Enrich.WithProperty("ServiceName", settings.Observability.ServiceName)
+                .Enrich.WithProperty("ServiceVersion", settings.Observability.ServiceVersion)
+                .WriteTo.Console(
+                    outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+                .WriteTo.File(
+                    path: "logs/bks-sdk-.log",
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 31,
+                    outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+                .CreateLogger();
+
+            // Registrar Serilog como provider de logging
+            services.AddLogging(builder =>
+            {
+                builder.ClearProviders();
+                builder.AddSerilog(dispose: true);
+            });
+
+            // Registrar logger customizado do SDK
+            services.AddSingleton<IBKSLogger, SerilogLogger>();
         }
 
-        if (string.IsNullOrWhiteSpace(settings.ApplicationName))
+
+        private static void ConfigureAuthentication(IServiceCollection services, SDKSettings settings)
         {
-            throw new InvalidOperationException("ApplicationName do BKS.SDK não configurado");
-        }
+            // Registrar serviÃ§os de autenticaÃ§Ã£o
+            services.AddSingleton<ILicenseValidator, LicenseValidator>();
+            services.AddSingleton<IJwtTokenProvider, JwtTokenProvider>();
+            services.AddSingleton<ITransactionTokenService, TransactionTokenService>();
 
-        // Validação básica da licença (em produção seria mais complexa)
-        var validator = new LicenseValidator(settings);
-        if (!validator.Validate(settings.LicenseKey, settings.ApplicationName))
-        {
-            throw new UnauthorizedAccessException("Licença do BKS.SDK inválida");
-        }
-    }
+            // Configurar autenticaÃ§Ã£o JWT
+            var key = Encoding.UTF8.GetBytes(settings.Jwt.SecretKey);
 
-
-    private static void ConfigureCoreServices(IServiceCollection services, SDKSettings settings)
-    {
-        // Logging
-        var logger = new LoggerConfiguration()
-            .WriteTo.Console()
-            .WriteTo.File("logs/bks-sdk-.txt", rollingInterval: RollingInterval.Day)
-            .CreateLogger();
-
-        Log.Logger = logger;
-        services.AddSingleton<bks.sdk.Observability.Logging.IBKSLogger, SerilogLogger>();
-    }
-
-
-    private static void ConfigureAuthentication(IServiceCollection services, SDKSettings settings)
-    {
-        // Registrar serviços de autenticação
-        services.AddScoped<ILicenseValidator, LicenseValidator>();
-        services.AddScoped<IJwtTokenProvider, JwtTokenProvider>();
-
-        // Configurar autenticação JWT do ASP.NET
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
             .AddJwtBearer(options =>
             {
+                options.RequireHttpsMetadata = false; // Para desenvolvimento
+                options.SaveToken = true;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
@@ -169,116 +190,135 @@ public static class SDKInitializer
                     ValidateIssuerSigningKey = true,
                     ValidIssuer = settings.Jwt.Issuer,
                     ValidAudience = settings.Jwt.Audience,
-                    IssuerSigningKey = new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(settings.Jwt.SecretKey))
+                    IssuerSigningKey = new SymmetricSecurityKey(key),
+                    ClockSkew = TimeSpan.Zero
                 };
             });
 
-        services.AddAuthorization();
-    }
-
-
-    private static void ConfigureCache(IServiceCollection services, SDKSettings settings)
-    {
-        if (!string.IsNullOrWhiteSpace(settings.Redis.ConnectionString))
-        {
-            services.AddSingleton<ICacheProvider>(provider =>
-                new RedisCacheProvider(settings.Redis.ConnectionString));
+            services.AddAuthorization();
         }
-        else
+
+
+        private static void ConfigureCache(IServiceCollection services, SDKSettings settings)
         {
-            // Cache em memória como fallback
-            services.AddMemoryCache();
-            services.AddSingleton<ICacheProvider, MemoryCacheProvider>();
-        }
-    }
-
- 
-    private static void ConfigureEventBroker(IServiceCollection services, SDKSettings settings)
-    {
-        services.AddSingleton<DomainEventDispatcher>();
-
-        // Registrar broker baseado na configuração
-        switch (settings.EventBroker.BrokerType)
-        {
-            case EventBrokerType.RabbitMQ:
-                services.AddSingleton<IEventBroker>(provider =>
-                {
-                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.IBKSLogger>();
-                    return new RabbitMqEventBroker(settings.EventBroker.ConnectionString, logger);
-                });
-                break;
-
-            case EventBrokerType.Kafka:
-                services.AddSingleton<IEventBroker>(provider =>
-                {
-                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.IBKSLogger>();
-                    return new KafkaEventBroker(settings.EventBroker.ConnectionString, logger);
-                });
-                break;
-
-            case EventBrokerType.GooglePubSub:
-                services.AddSingleton<IEventBroker>(provider =>
-                {
-                    var logger = provider.GetRequiredService<bks.sdk.Observability.Logging.IBKSLogger>();
-                    return new GooglePubSubEventBroker(settings.EventBroker.ConnectionString, logger);
-                });
-                break;
-
-            default:
-                // Broker em memória para desenvolvimento
-                services.AddSingleton<IEventBroker, InMemoryEventBroker>();
-                break;
-        }
-    }
-
-
-    private static void ConfigureMediator(IServiceCollection services)
-    {
-        services.AddScoped<IMediator, bks.sdk.Mediator.Implementations.Mediator>();
-    }
-
-
-    private static void ConfigureObservability(IServiceCollection services, SDKSettings settings)
-    {
-        // OpenTelemetry
-        services.AddOpenTelemetry()
-            .WithTracing(builder =>
+            if (!string.IsNullOrWhiteSpace(settings.Redis.ConnectionString))
             {
-                builder
-                    .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddSource("bks.sdk")
-                    .SetSampler(new TraceIdRatioBasedSampler(1.0));
+                services.AddSingleton<ICacheProvider>(provider =>
+                    new RedisCacheProvider(settings.Redis.ConnectionString));
+            }
+            else
+            {
+                // Cache em memÃ³ria como fallback
+                services.AddMemoryCache();
+                services.AddSingleton<ICacheProvider, MemoryCacheProvider>();
+            }
+        }
 
-                // Se Jaeger configurado
-                if (!string.IsNullOrWhiteSpace(settings.Observability.JaegerEndpoint))
+        private static void ConfigureMediator(IServiceCollection services)
+        {
+            services.AddSingleton<IMediator, Mediator.Implementations.Mediator>();
+
+            // Registrar handlers automaticamente via reflection
+            RegisterMediatorHandlers(services);
+        }
+
+   
+        private static void RegisterMediatorHandlers(IServiceCollection services)
+        {
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+
+            foreach (var assembly in assemblies)
+            {
+                var handlerTypes = assembly.GetTypes()
+                    .Where(t => t.GetInterfaces()
+                        .Any(i => i.IsGenericType &&
+                                 i.GetGenericTypeDefinition() == typeof(IRequestHandler<,>)))
+                    .Where(t => !t.IsAbstract && !t.IsInterface);
+
+                foreach (var handlerType in handlerTypes)
                 {
-                    builder.AddJaegerExporter(options =>
+                    var interfaces = handlerType.GetInterfaces()
+                        .Where(i => i.IsGenericType &&
+                                   i.GetGenericTypeDefinition() == typeof(IRequestHandler<,>));
+
+                    foreach (var @interface in interfaces)
                     {
-                        options.Endpoint = new Uri(settings.Observability.JaegerEndpoint);
-                    });
+                        services.AddTransient(@interface, handlerType);
+                    }
                 }
-            })
-            .WithMetrics(builder =>
+            }
+        }
+
+   
+        private static void ConfigureEvents(IServiceCollection services, SDKSettings settings)
+        {
+            // Registrar dispatcher de eventos
+            services.AddSingleton<DomainEventDispatcher>();
+
+            // Configurar broker baseado no tipo especificado
+            switch (settings.EventBroker.BrokerType)
             {
-                builder
-                    .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation();
-            });
+                case EventBrokerType.RabbitMQ:
+                    // TODO: Implementar RabbitMQEventBroker
+                    services.AddSingleton<IEventBroker, InMemoryEventBroker>();
+                    break;
 
-        // Tracer personalizado
-        services.AddSingleton<IBKSTracer, OpenTelemetryTracer>();
+                case EventBrokerType.Kafka:
+                    // TODO: Implementar KafkaEventBroker
+                    services.AddSingleton<IEventBroker, InMemoryEventBroker>();
+                    break;
+
+                case EventBrokerType.GooglePubSub:
+                    // TODO: Implementar GooglePubSubEventBroker
+                    services.AddSingleton<IEventBroker, InMemoryEventBroker>();
+                    break;
+
+                default:
+                    // Fallback para implementaÃ§Ã£o em memÃ³ria
+                    services.AddSingleton<IEventBroker, InMemoryEventBroker>();
+                    break;
+            }
+        }
+
+        private static void ConfigureObservability(IServiceCollection services, SDKSettings settings)
+        {
+            // Configurar OpenTelemetry
+            services.AddBKSObservability(settings.Observability);
+        }
+
+      
+        private static void ConfigureTransactions(IServiceCollection services)
+        {
+            services.AddScoped<ITransactionTokenService, TransactionTokenService>();
+        }
+
+    
+        private static void ConfigureHealthChecks(IServiceCollection services, SDKSettings settings)
+        {
+            var healthChecksBuilder = services.AddHealthChecks();
+
+            // Health Check bÃ¡sico do SDK
+            healthChecksBuilder.AddCheck<SdkHealthCheck>("bks-sdk",
+                tags: new[] { "sdk", "ready", "live" });
+
+            // Health Check do Redis (se configurado)
+            if (!string.IsNullOrWhiteSpace(settings.Redis.ConnectionString))
+            {
+                healthChecksBuilder.AddCheck<RedisHealthCheck>("redis",
+                    tags: new[] { "external", "cache", "ready" });
+            }
+
+            // Health Check do sistema de eventos
+            healthChecksBuilder.AddCheck<EventBrokerHealthCheck>("event-broker",
+                tags: new[] { "external", "messaging", "ready" });
+
+            // Health Check do JWT (validaÃ§Ã£o de configuraÃ§Ã£o)
+            healthChecksBuilder.AddCheck<JwtHealthCheck>("jwt-config",
+                tags: new[] { "config", "security", "ready" });
+
+        }
     }
-
-    private static void ConfigureTransactions(IServiceCollection services)
-    {
-        services.AddScoped<ITransactionTokenService, TransactionTokenService>();
-    }
-
-    #endregion
 }
-
 
 
 
