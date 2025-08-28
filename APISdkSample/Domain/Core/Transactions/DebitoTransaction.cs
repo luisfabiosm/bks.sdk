@@ -1,21 +1,56 @@
 ﻿using bks.sdk.Common.Results;
 using bks.sdk.Transactions;
+using Domain.Core.Models.DTOs.Request;
 
 namespace Domain.Core.Transactions
 {
-    public record DebitoTransaction : BaseTransaction
+    public sealed record DebitoTransaction : BaseTransaction
     {
-        public string NumeroConta { get; init; } = string.Empty;
+        public int Agencia { get; init; } = 1;
+        public int NumeroConta { get; init; } = 0;
         public decimal Valor { get; init; }
         public string Descricao { get; init; } = string.Empty;
         public string? Referencia { get; init; }
-        public string? TipoDebito { get; init; } = "OPERACIONAL"; // OPERACIONAL, TAXA, AJUSTE
+
+        // Construtor privado para forçar uso do factory
+        private DebitoTransaction() { }
+
+        // Factory method principal
+        public static DebitoTransaction Create(
+            int numeroConta,
+            decimal valor,
+            string descricao,
+            int agencia = 1,
+            string? referencia = null)
+        {
+            var transaction = new DebitoTransaction
+            {
+                Agencia = agencia,
+                NumeroConta = numeroConta,
+                Valor = valor,
+                Descricao = descricao ?? string.Empty,
+                Referencia = referencia
+            };
+
+            return transaction;
+        }
+
+        public static DebitoTransaction Create(DebitoRequest request)
+        {
+            return Create(
+                request.NumeroConta,
+                request.Valor,
+                request.Descricao,
+                request.Agencia,
+                request.Referencia);
+        }
+
 
         public override ValidationResult ValidateTransaction()
         {
             var errors = new List<string>();
 
-            if (string.IsNullOrWhiteSpace(NumeroConta))
+            if (NumeroConta == 0)
                 errors.Add("Número da conta é obrigatório");
 
             if (Valor <= 0)
@@ -30,15 +65,11 @@ namespace Domain.Core.Transactions
             if (Descricao.Length > 200)
                 errors.Add("Descrição deve ter no máximo 200 caracteres");
 
-            // Validação específica de formato da conta
-            if (!string.IsNullOrWhiteSpace(NumeroConta) &&
-                !System.Text.RegularExpressions.Regex.IsMatch(NumeroConta, @"^\d{5}-\d$"))
-                errors.Add("Formato de conta inválido (esperado: 12345-6)");
-
             return errors.Any()
                 ? ValidationResult.Failure(errors)
                 : ValidationResult.Success();
         }
     }
+
 
 }

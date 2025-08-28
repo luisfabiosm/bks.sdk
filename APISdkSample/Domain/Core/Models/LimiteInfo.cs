@@ -2,7 +2,7 @@
 {
     public record LimiteInfo
     {
-        public string NumeroConta { get; init; } = string.Empty;
+        public int NumeroConta { get; init; }
         public decimal LimiteDebitoDiario { get; init; }
         public decimal LimiteDebitoMensal { get; init; }
         public decimal LimiteTransferenciaDiaria { get; init; }

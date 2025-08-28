@@ -7,7 +7,7 @@ namespace Domain.Core.Models.Results
     {
         public string TransacaoId { get; init; } = string.Empty;
         public string ContaId { get; init; } = string.Empty;
-        public string NumeroConta { get; init; } = string.Empty;
+        public int NumeroConta { get; init; } 
         public string TitularConta { get; init; } = string.Empty;
         public decimal ValorDebitado { get; init; }
         public decimal SaldoAnterior { get; init; }

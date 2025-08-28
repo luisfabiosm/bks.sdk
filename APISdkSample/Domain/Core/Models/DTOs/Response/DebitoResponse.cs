@@ -9,7 +9,7 @@ namespace Domain.Core.Models.DTOs.Response
         public string Mensagem { get; init; } = string.Empty;
         public string? TransacaoId { get; init; }
         public string? ContaId { get; init; }
-        public string? NumeroConta { get; init; }
+        public int NumeroConta { get; init; }
         public string? TitularConta { get; init; }
         public decimal? ValorDebitado { get; init; }
         public decimal? SaldoAnterior { get; init; }

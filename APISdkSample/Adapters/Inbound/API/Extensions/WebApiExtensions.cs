@@ -1,5 +1,6 @@
 ﻿using Adapters.Inbound.API.Endpoints;
 using bks.sdk.Core.Initialization;
+using Configurations;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using System.Reflection;
@@ -12,6 +13,9 @@ namespace Adapters.Inbound.API.Extensions
         {
             services.AddEndpointsApiExplorer();
             services.ConfigureSwagger();
+            services.ConfigureOutboundAdapters(configuration);
+            services.ConfigureDomainAdapters(configuration);
+           
 
             // Configuração de CORS
             services.AddCors(options =>

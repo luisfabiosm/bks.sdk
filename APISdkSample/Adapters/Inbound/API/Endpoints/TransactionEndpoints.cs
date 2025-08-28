@@ -3,6 +3,7 @@ using Domain.Core.Interfaces.Outbound;
 using Domain.Core.Models.DTOs.Request;
 using Domain.Core.Models.DTOs.Response;
 using Domain.Core.Models.Entities;
+using Domain.Core.Models.Results;
 using Domain.Core.Transactions;
 using Domain.Processors;
 using Microsoft.AspNetCore.Mvc;
@@ -20,28 +21,21 @@ namespace Adapters.Inbound.API.Endpoints
   
             transactiongroup.MapPost("/debit", async (
                               [FromBody] DebitoRequest request,
-                              [FromServices]  DebitoProcessor processor,
+                              [FromServices]  ITransactionProcessor<DebitoResult> processor,
                               HttpContext context,
                               CancellationToken cancellationToken) =>
             {
                 try
                 {
-                    // Criar a transação de débito
-                    var transacao = new DebitoTransaction
-                    {
-                        NumeroConta = request.NumeroConta,
-                        Valor = request.Valor,
-                        Descricao = request.Descricao,
-                        Referencia = request.Referencia,
-                        TipoDebito = request.TipoDebito
-                    };
+
+                    var transacao = DebitoTransaction.Create(request);
 
                     // Processar através do SDK (pipeline completa)
                     var resultado = await processor.ExecuteAsync(transacao, cancellationToken);
 
                     if (resultado.IsSuccess)
                     {
-                        var response = DebitoResponse.FromSuccess(resultado.Value!);
+                        var response = DebitoResponse.FromSuccess(resultado.Value);
                         return Results.Ok(response);
                     }
                     else
@@ -90,7 +84,7 @@ namespace Adapters.Inbound.API.Endpoints
 
 
             transactiongroup.MapGet("/account/{numeroConta}/moviments", async (
-                string numeroConta,
+                int numeroConta,
                 [FromServices] IContaRepository contaRepository,
                 DateTime? dataInicio,
                 DateTime? dataFim,

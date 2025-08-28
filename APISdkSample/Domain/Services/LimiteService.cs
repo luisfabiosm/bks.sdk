@@ -12,25 +12,24 @@ namespace Domain.Services
 {
     public class LimiteService : ILimiteService
     {
-        private readonly ICacheProvider _cache;
+
         private readonly IContaRepository _contaRepository;
         private readonly IBKSLogger _logger;
         private readonly LimiteConfiguration _config;
 
         public LimiteService(
-            ICacheProvider cache,
+         
             IContaRepository contaRepository,
-            IBKSLogger logger,
-            LimiteConfiguration config)
+            IBKSLogger logger)
         {
-            _cache = cache;
             _contaRepository = contaRepository;
             _logger = logger;
-            _config = config;
+            _config = new LimiteConfiguration();
+                
         }
 
         public async ValueTask<ValidationResult> ValidarLimiteDebitoAsync(
-            string numeroConta,
+            int numeroConta,
             decimal valor,
             CancellationToken cancellationToken = default)
         {
@@ -80,7 +79,7 @@ namespace Domain.Services
         }
 
         public async ValueTask AtualizarLimiteUtilizadoAsync(
-            string numeroConta,
+            int numeroConta,
             decimal valor,
             TipoLimite tipo,
             CancellationToken cancellationToken = default)
@@ -115,7 +114,6 @@ namespace Domain.Services
                 // Salvar no cache
                 var cacheKey = $"limites_{numeroConta}";
                 var json = JsonSerializer.Serialize(limitesAtualizados);
-                await _cache.SetAsync(cacheKey, json, TimeSpan.FromHours(24));
 
                 _logger.Info($"Limite atualizado com sucesso para conta {numeroConta}: {tipo}");
             }
@@ -126,23 +124,15 @@ namespace Domain.Services
         }
 
         public async ValueTask<LimiteInfo> ObterLimitesContaAsync(
-            string numeroConta,
+            int numeroConta,
             CancellationToken cancellationToken = default)
         {
             try
             {
                 // Tentar obter do cache primeiro
                 var cacheKey = $"limites_{numeroConta}";
-                var cachedData = await _cache.GetAsync(cacheKey);
 
-                if (!string.IsNullOrEmpty(cachedData))
-                {
-                    var limitesCache = JsonSerializer.Deserialize<LimiteInfo>(cachedData);
-                    if (limitesCache != null && !PrecisaReset(limitesCache))
-                    {
-                        return limitesCache;
-                    }
-                }
+      
 
                 // Buscar conta para determinar categoria de limites
                 var conta = await _contaRepository.GetByNumeroAsync(numeroConta, cancellationToken);
@@ -154,19 +144,10 @@ namespace Domain.Services
                 // Criar limites baseados na categoria da conta
                 var limites = CriarLimitesIniciais(numeroConta, conta);
 
-                // Verificar se precisa fazer reset (novo dia/mês)
-                if (cachedData != null)
-                {
-                    var limitesAnteriores = JsonSerializer.Deserialize<LimiteInfo>(cachedData);
-                    if (limitesAnteriores != null)
-                    {
-                        limites = AplicarResetLimites(limites, limitesAnteriores);
-                    }
-                }
+    
 
                 // Salvar no cache
                 var json = JsonSerializer.Serialize(limites);
-                await _cache.SetAsync(cacheKey, json, TimeSpan.FromHours(24));
 
                 return limites;
             }
@@ -180,15 +161,13 @@ namespace Domain.Services
         }
 
         public async ValueTask<bool> RedefinirLimitesAsync(
-            string numeroConta,
+            int numeroConta,
             CancellationToken cancellationToken = default)
         {
             try
             {
                 var cacheKey = $"limites_{numeroConta}";
 
-                // Remover do cache para forçar recriação
-                await _cache.SetAsync(cacheKey, "", TimeSpan.FromSeconds(1));
 
                 _logger.Info($"Limites redefinidos para conta {numeroConta}");
                 return true;
@@ -202,7 +181,7 @@ namespace Domain.Services
 
         #region Métodos Privados
 
-        private LimiteInfo CriarLimitesIniciais(string numeroConta, Conta? conta)
+        private LimiteInfo CriarLimitesIniciais(int numeroConta, Conta? conta)
         {
             // Determinar categoria da conta baseado no saldo ou outros critérios
             var categoria = DeterminarCategoriaLimite(conta);

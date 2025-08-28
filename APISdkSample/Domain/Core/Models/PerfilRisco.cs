@@ -2,7 +2,7 @@
 {
     public record PerfilRisco
     {
-        public string NumeroConta { get; init; } = string.Empty;
+        public int NumeroConta { get; init; } 
         public int ScoreComportamento { get; init; } // 0-100
         public int QuantidadeTransacoesUltimos30Dias { get; init; }
         public decimal VolumeTransacoesUltimos30Dias { get; init; }

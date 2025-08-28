@@ -2,10 +2,10 @@
 {
     public record DebitoRequest
     {
-        public string NumeroConta { get; init; } = string.Empty;
+        public int Agencia { get; init; } = 1;
+        public int NumeroConta { get; init; } 
         public decimal Valor { get; init; }
         public string Descricao { get; init; } = string.Empty;
         public string? Referencia { get; init; }
-        public string? TipoDebito { get; init; } = "OPERACIONAL";
     }
 }
