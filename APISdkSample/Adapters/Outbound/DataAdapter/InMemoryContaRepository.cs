@@ -11,7 +11,7 @@ namespace Adapters.Outbound.DataAdapter;
 public class InMemoryContaRepository : IContaRepository
 {
     private static readonly ConcurrentDictionary<string, Conta> _contasPorId = new();
-    private static readonly ConcurrentDictionary<string, string> _contasPorNumero = new(); // numero -> id
+    private static readonly ConcurrentDictionary<int, string> _contasPorNumero = new(); // numero -> id
     private static readonly object _lockInit = new object();
     private static bool _initialized = false;
 
@@ -52,7 +52,7 @@ public class InMemoryContaRepository : IContaRepository
     }
 
    
-    public ValueTask<Conta?> GetByNumeroAsync(string numero, CancellationToken cancellationToken = default)
+    public ValueTask<Conta?> GetByNumeroAsync(int numero, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -125,7 +125,7 @@ public class InMemoryContaRepository : IContaRepository
     }
 
 
-    public ValueTask<bool> ExistsAsync(string numero, CancellationToken cancellationToken = default)
+    public ValueTask<bool> ExistsAsync(int numero, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -238,7 +238,7 @@ public class InMemoryContaRepository : IContaRepository
             try
             {
                 // Conta 1: João Silva (Saldo alto - categoria PREMIUM)
-                var conta1 = new Conta("12345-6", "João Silva");
+                var conta1 = new Conta(123456, "João Silva");
                 AdicionarMovimentacaoSemente(conta1, 150000m, "Depósito inicial", "ABERTURA-CONTA");
                 AdicionarMovimentacaoSemente(conta1, -5000m, "Saque emergencial", "ATM-001", DateTime.UtcNow.AddDays(-10));
                 AdicionarMovimentacaoSemente(conta1, -2500m, "Compra supermercado", "CARD-***1234", DateTime.UtcNow.AddDays(-8));
@@ -246,14 +246,14 @@ public class InMemoryContaRepository : IContaRepository
                 AdicionarMovimentacaoSemente(conta1, -1200m, "Conta de luz", "DEBITO-AUTO", DateTime.UtcNow.AddDays(-3));
 
                 // Conta 2: Maria Santos (Saldo médio - categoria GOLD)
-                var conta2 = new Conta("67890-1", "Maria Santos");
+                var conta2 = new Conta(678901, "Maria Santos");
                 AdicionarMovimentacaoSemente(conta2, 45000m, "Depósito inicial", "ABERTURA-CONTA");
                 AdicionarMovimentacaoSemente(conta2, -1500m, "Compra online", "CARD-***5678", DateTime.UtcNow.AddDays(-7));
                 AdicionarMovimentacaoSemente(conta2, 3200m, "Salário", "TED-EMPRESA", DateTime.UtcNow.AddDays(-4));
                 AdicionarMovimentacaoSemente(conta2, -800m, "Academia", "DEBITO-AUTO", DateTime.UtcNow.AddDays(-2));
 
                 // Conta 3: Empresa ABC Ltda (Saldo muito alto - categoria PREMIUM)
-                var conta3 = new Conta("11111-1", "Empresa ABC Ltda");
+                var conta3 = new Conta(111111, "Empresa ABC Ltda");
                 AdicionarMovimentacaoSemente(conta3, 500000m, "Capital inicial", "APORTE-SOCIO");
                 AdicionarMovimentacaoSemente(conta3, -45000m, "Folha pagamento", "FOLHA-NOV", DateTime.UtcNow.AddDays(-15));
                 AdicionarMovimentacaoSemente(conta3, 125000m, "Faturamento", "VENDAS-NOV", DateTime.UtcNow.AddDays(-12));
@@ -261,14 +261,14 @@ public class InMemoryContaRepository : IContaRepository
                 AdicionarMovimentacaoSemente(conta3, -8500m, "Fornecedores", "PAGTO-FORNEC", DateTime.UtcNow.AddDays(-1));
 
                 // Conta 4: Pedro Oliveira (Saldo baixo - categoria STANDARD)
-                var conta4 = new Conta("22222-2", "Pedro Oliveira");
+                var conta4 = new Conta(222222, "Pedro Oliveira");
                 AdicionarMovimentacaoSemente(conta4, 2500m, "Depósito inicial", "ABERTURA-CONTA");
                 AdicionarMovimentacaoSemente(conta4, -150m, "Padaria", "CARD-***9012", DateTime.UtcNow.AddDays(-6));
                 AdicionarMovimentacaoSemente(conta4, -80m, "Farmácia", "CARD-***9012", DateTime.UtcNow.AddDays(-4));
                 AdicionarMovimentacaoSemente(conta4, 1200m, "Freelance", "PIX-RECEBIDO", DateTime.UtcNow.AddDays(-2));
 
                 // Conta 5: Ana Costa (Conta nova - categoria STANDARD)
-                var conta5 = new Conta("33333-3", "Ana Costa");
+                var conta5 = new Conta(333333, "Ana Costa");
                 AdicionarMovimentacaoSemente(conta5, 1000m, "Depósito inicial", "ABERTURA-CONTA");
 
                 // Registrar contas
@@ -469,19 +469,6 @@ public class InMemoryContaRepository : IContaRepository
         _logger.Info("Dados do repositório in-memory limpos");
     }
 
-
-    public RepositoryStats ObterEstatisticas()
-    {
-        return new RepositoryStats
-        {
-            TotalContas = _contasPorId.Count,
-            SaldoTotal = _contasPorId.Values.Sum(c => c.Saldo),
-            TotalMovimentacoes = _contasPorId.Values.Sum(c => c.Movimentacoes.Count),
-            ContaComMaiorSaldo = _contasPorId.Values.OrderByDescending(c => c.Saldo).FirstOrDefault()?.Numero ?? "",
-            ContaComMaisMovimentacoes = _contasPorId.Values.OrderByDescending(c => c.Movimentacoes.Count).FirstOrDefault()?.Numero ?? "",
-            UltimaAtualizacao = DateTime.UtcNow
-        };
-    }
 
     /// <summary>
     /// Adiciona conta para testes

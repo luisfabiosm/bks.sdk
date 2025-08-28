@@ -9,9 +9,9 @@ namespace Domain.Core.Interfaces.Domain
     {
 
 
-        ValueTask<ValidationResult> ValidarLimiteDebitoAsync(string numeroConta, decimal valor, CancellationToken cancellationToken = default);
-        ValueTask AtualizarLimiteUtilizadoAsync(string numeroConta, decimal valor, TipoLimite tipo, CancellationToken cancellationToken = default);
-        ValueTask<LimiteInfo> ObterLimitesContaAsync(string numeroConta, CancellationToken cancellationToken = default);
-        ValueTask<bool> RedefinirLimitesAsync(string numeroConta, CancellationToken cancellationToken = default);
+        ValueTask<ValidationResult> ValidarLimiteDebitoAsync(int numeroConta, decimal valor, CancellationToken cancellationToken = default);
+        ValueTask AtualizarLimiteUtilizadoAsync(int numeroConta, decimal valor, TipoLimite tipo, CancellationToken cancellationToken = default);
+        ValueTask<LimiteInfo> ObterLimitesContaAsync(int numeroConta, CancellationToken cancellationToken = default);
+        ValueTask<bool> RedefinirLimitesAsync(int numeroConta, CancellationToken cancellationToken = default);
     }
 }

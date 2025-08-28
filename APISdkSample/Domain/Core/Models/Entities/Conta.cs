@@ -5,7 +5,7 @@ namespace Domain.Core.Models.Entities
     public record Conta
     {
         public string Id { get; private set; } = string.Empty;
-        public string Numero { get; private set; } = string.Empty;
+        public int Numero { get; private set; }
         public string Titular { get; private set; } = string.Empty;
         public decimal Saldo { get; private set; }
         public bool Ativa { get; private set; }
@@ -15,7 +15,7 @@ namespace Domain.Core.Models.Entities
         private readonly List<MovimentacaoInfo> _movimentacoes = new();
         public IReadOnlyList<MovimentacaoInfo> Movimentacoes => _movimentacoes.AsReadOnly();
 
-        public Conta(string numero, string titular)
+        public Conta(int numero, string titular)
         {
             Id = Guid.NewGuid().ToString();
             Numero = numero;

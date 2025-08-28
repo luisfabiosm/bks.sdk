@@ -1,5 +1,6 @@
 using Adapters.Inbound.API.Extensions;
 using bks.sdk.Core.Initialization;
+using bks.sdk.Core.Middlewares;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +26,6 @@ builder.Services.AddBKSSDK();
 builder.Services.ConfigureAPI(configuration);
 var app = builder.Build();
 
-app.UseBksSdk();
+app.UseBKSSDK();
 app.UseAPIExtensions();
 app.Run();

@@ -12,21 +12,17 @@ namespace Domain.Services;
 
 public class FraudeService : IFraudeService
 {
-    private readonly ICacheProvider _cache;
     private readonly IContaRepository _contaRepository;
     private readonly IBKSLogger _logger;
     private readonly FraudeConfiguration _config;
 
     public FraudeService(
-        ICacheProvider cache,
         IContaRepository contaRepository,
-        IBKSLogger logger,
-        FraudeConfiguration config)
+        IBKSLogger logger)
     {
-        _cache = cache;
         _contaRepository = contaRepository;
         _logger = logger;
-        _config = config;
+        _config = new FraudeConfiguration();
     }
 
     public async ValueTask<AnaliseRisco> AnalisarTransacaoAsync(BaseTransaction transacao, CancellationToken cancellationToken = default)
@@ -40,10 +36,10 @@ public class FraudeService : IFraudeService
             var scoreRisco = 0;
 
             // Obter perfil de risco da conta
-            string? numeroConta = ExtrairNumeroContaTransacao(transacao);
+            int numeroConta = ExtrairNumeroContaTransacao(transacao);
             PerfilRisco? perfilRisco = null;
 
-            if (!string.IsNullOrEmpty(numeroConta))
+            if (numeroConta !=0)
             {
                 perfilRisco = await ObterPerfilRiscoContaAsync(numeroConta, cancellationToken);
             }
@@ -76,7 +72,7 @@ public class FraudeService : IFraudeService
             };
 
             // Registrar evento suspeito se necessário
-            if (isRisco && !string.IsNullOrEmpty(numeroConta))
+            if (isRisco && numeroConta !=0)
             {
                 await RegistrarEventoSuspeitoAsync(
                     transacao.CorrelationId,
@@ -105,22 +101,14 @@ public class FraudeService : IFraudeService
     }
 
 
-    public async ValueTask<PerfilRisco> ObterPerfilRiscoContaAsync(string numeroConta, CancellationToken cancellationToken = default)
+    public async ValueTask<PerfilRisco> ObterPerfilRiscoContaAsync(int numeroConta, CancellationToken cancellationToken = default)
     {
         try
         {
             // Tentar obter do cache primeiro
             var cacheKey = $"perfil_risco_{numeroConta}";
-            var cachedData = await _cache.GetAsync(cacheKey);
 
-            if (!string.IsNullOrEmpty(cachedData))
-            {
-                var perfilCache = JsonSerializer.Deserialize<PerfilRisco>(cachedData);
-                if (perfilCache != null && (DateTime.UtcNow - perfilCache.UltimaAtualizacao).TotalHours < 6)
-                {
-                    return perfilCache;
-                }
-            }
+      
 
             // Construir perfil baseado no histórico da conta
             var conta = await _contaRepository.GetByNumeroAsync(numeroConta, cancellationToken);
@@ -133,7 +121,6 @@ public class FraudeService : IFraudeService
 
             // Salvar no cache
             var json = JsonSerializer.Serialize(perfil);
-            await _cache.SetAsync(cacheKey, json, TimeSpan.FromHours(6));
 
             return perfil;
         }
@@ -161,7 +148,6 @@ public class FraudeService : IFraudeService
             // Registrar em cache para histórico recente
             var cacheKey = $"evento_suspeito_{evento.Id}";
             var json = JsonSerializer.Serialize(evento);
-            await _cache.SetAsync(cacheKey, json, TimeSpan.FromDays(30));
 
             _logger.Warn($"🚨 Evento suspeito registrado: {transacaoId} - {motivo}");
 
@@ -322,34 +308,20 @@ public class FraudeService : IFraudeService
         }
     }
 
-    private async ValueTask AplicarRegraFrequenciaAlta( BaseTransaction transacao, string? numeroConta, List<RegrafValidada> regras, List<string> motivos, 
+    private async ValueTask AplicarRegraFrequenciaAlta( BaseTransaction transacao, int numeroConta, List<RegrafValidada> regras, List<string> motivos, 
          int scoreRisco)
     {
         var violada = false;
         var detalhes = "";
 
-        if (!string.IsNullOrEmpty(numeroConta))
+        if (numeroConta !=0 )
         {
             // Verificar transações recentes no cache
             var cacheKey = $"freq_transacoes_{numeroConta}";
-            var frequenciaData = await _cache.GetAsync(cacheKey);
 
             var transacoesHoje = 1; // Transação atual
             var transacoesUltimaHora = 1;
 
-            if (!string.IsNullOrEmpty(frequenciaData))
-            {
-                var dados = JsonSerializer.Deserialize<FrequenciaTransacoes>(frequenciaData);
-                if (dados != null)
-                {
-                    // Contar transações de hoje
-                    transacoesHoje = dados.TransacoesHoje.Count(t => t.Date == DateTime.Today) + 1;
-
-                    // Contar transações da última hora
-                    var umaHoraAtras = DateTime.UtcNow.AddHours(-1);
-                    transacoesUltimaHora = dados.TransacoesRecentes.Count(t => t >= umaHoraAtras) + 1;
-                }
-            }
 
             // Verificar limites de frequência
             if (transacoesHoje > _config.LimiteTransacoesPorDia)
@@ -433,13 +405,13 @@ public class FraudeService : IFraudeService
 
     #region Métodos Auxiliares
 
-    private string? ExtrairNumeroContaTransacao(BaseTransaction transacao)
+    private int ExtrairNumeroContaTransacao(BaseTransaction transacao)
     {
         return transacao switch
         {
             DebitoTransaction debito => debito.NumeroConta,
             // Adicionar outros tipos conforme necessário
-            _ => null
+            _ => 0
         };
     }
 
@@ -481,7 +453,7 @@ public class FraudeService : IFraudeService
         return TipoNivelRisco.Baixo;
     }
 
-    private PerfilRisco CriarPerfilRiscoPadrao(string numeroConta)
+    private PerfilRisco CriarPerfilRiscoPadrao(int numeroConta)
     {
         return new PerfilRisco
         {
@@ -497,7 +469,7 @@ public class FraudeService : IFraudeService
     }
 
     private async Task<PerfilRisco> ConstruirPerfilRisco(
-        string numeroConta,
+        int numeroConta,
         Domain.Core.Models.Entities.Conta conta,
         CancellationToken cancellationToken)
     {
@@ -615,7 +587,7 @@ public class FraudeService : IFraudeService
         return media > 0 ? desviopadrao / media : 0; // Coeficiente de variação
     }
 
-    private async Task<List<EventoSuspeito>> BuscarEventosSuspeitos(string numeroConta)
+    private async Task<List<EventoSuspeito>> BuscarEventosSuspeitos(int numeroConta)
     {
         var eventos = new List<EventoSuspeito>();
 
@@ -625,14 +597,7 @@ public class FraudeService : IFraudeService
             for (int i = 0; i < 90; i++)
             {
                 var cacheKey = $"evento_suspeito_conta_{numeroConta}_{DateTime.UtcNow.AddDays(-i):yyyyMMdd}";
-                var eventoData = await _cache.GetAsync(cacheKey);
 
-                if (!string.IsNullOrEmpty(eventoData))
-                {
-                    var evento = JsonSerializer.Deserialize<EventoSuspeito>(eventoData);
-                    if (evento != null)
-                        eventos.Add(evento);
-                }
             }
         }
         catch (Exception ex)
@@ -643,19 +608,13 @@ public class FraudeService : IFraudeService
         return eventos.OrderByDescending(e => e.DataEvento).ToList();
     }
 
-    private async Task AtualizarFrequenciaTransacoes(string numeroConta)
+    private async Task AtualizarFrequenciaTransacoes(int numeroConta)
     {
         try
         {
             var cacheKey = $"freq_transacoes_{numeroConta}";
-            var frequenciaData = await _cache.GetAsync(cacheKey);
 
             var dados = new FrequenciaTransacoes();
-
-            if (!string.IsNullOrEmpty(frequenciaData))
-            {
-                dados = JsonSerializer.Deserialize<FrequenciaTransacoes>(frequenciaData) ?? new FrequenciaTransacoes();
-            }
 
             // Adicionar transação atual
             var agora = DateTime.UtcNow;
@@ -669,7 +628,6 @@ public class FraudeService : IFraudeService
 
             // Salvar no cache
             var json = JsonSerializer.Serialize(dados);
-            await _cache.SetAsync(cacheKey, json, TimeSpan.FromDays(1));
         }
         catch (Exception ex)
         {

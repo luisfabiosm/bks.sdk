@@ -1,391 +1,706 @@
 using bks.sdk.Common.Results;
-using bks.sdk.Enum;
 using bks.sdk.Events;
 using bks.sdk.Observability.Logging;
+using bks.sdk.Observability.Metrics;
 using bks.sdk.Observability.Tracing;
+using Microsoft.Extensions.Logging;
+using OpenTelemetry.Trace;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace bks.sdk.Transactions;
 
-public abstract class TransactionProcessor<TResult> : ITransactionProcessor<TResult>
+/// <summary>
+/// Classe base para processadores de transação com instrumentação completa
+/// </summary>
+public abstract class TransactionProcessor : ITransactionProcessor
 {
-    protected readonly IBKSLogger _logger;
-    protected readonly IBKSTracer _tracer;
-    protected readonly IEventBroker _eventBroker;
+    private static readonly ActivitySource ActivitySource = new("bks.sdk.transactions");
 
-    protected TransactionProcessor(
-       IServiceProvider serviceProvider,
-       IBKSLogger? logger,
-       IBKSTracer? tracer,
-       IEventBroker? eventBroker)
+    protected readonly IBKSLogger Logger;
+    protected readonly IEventBroker EventBroker;
+    protected readonly IBKSTracer Tracer;
+
+    protected TransactionProcessor(IServiceProvider serviceProvider,
+        IBKSLogger logger,
+        IBKSTracer tracer,
+        IEventBroker eventBroker)
     {
-        _logger = logger;
-        _tracer = tracer;
-        _eventBroker = eventBroker;
+        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        EventBroker = eventBroker ?? throw new ArgumentNullException(nameof(eventBroker));
+        Tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
     }
 
-
-    public async Task<Result<TResult>> ExecuteAsync(BaseTransaction transaction, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Executa uma transação com instrumentação completa
+    /// </summary>
+    public async Task<Result> ExecuteAsync(BaseTransaction transaction, CancellationToken cancellationToken = default)
     {
+        if (transaction == null)
+        {
+            const string error = "Transaction cannot be null";
+            Logger.Error(error);
+            return Result.Failure(error);
+        }
+
+        var transactionType = transaction.GetType().Name;
+        var stopwatch = Stopwatch.StartNew();
+
+        // Criar span principal para toda a operação
+        using var mainActivity = ActivitySource.StartActivity("transaction.execute");
+        mainActivity?.SetTag("transaction.id", transaction.CorrelationId);
+        mainActivity?.SetTag("transaction.type", transactionType);
+        mainActivity?.SetTag("transaction.correlation_id", transaction.CorrelationId);
+
         try
         {
-            // 1. Validação da transação
-            var validation = transaction.ValidateTransaction();
-            if (!validation.IsValid)
-                return Result<TResult>.Failure(string.Join("; ", validation.Errors));
+            Logger.Info($"Iniciando processamento da transação {transactionType} - CorrelationId: {transaction.CorrelationId}");
 
-            // 2. Pré-processamento
-            var preProcessResult = await PreProcessAsync(transaction, cancellationToken);
-            if (!preProcessResult.IsSuccess)
-                return Result<TResult>.Failure(preProcessResult.Error!);
+            // Registrar início nos metrics
+            BKSMetrics.TransactionStarted.Add(1, new KeyValuePair<string, object?>("transaction.type", transactionType));
+            BKSMetrics.ActiveTransactions.Add(1, new KeyValuePair<string, object?>("transaction.type", transactionType));
 
-            // 3. Processamento principal (retorna resultado tipado)
-            var processResult = await ProcessAsync(transaction, cancellationToken);
-            if (!processResult.IsSuccess)
+            // Publicar evento de início
+            await PublishTransactionStartedEvent(transaction);
+
+            // Pipeline de processamento com instrumentação
+            var result = await ExecuteInstrumentedPipeline(transaction, cancellationToken);
+
+            stopwatch.Stop();
+
+            // Registrar métricas finais
+            var success = result.IsSuccess;
+            var duration = stopwatch.Elapsed.TotalSeconds;
+
+            BKSMetrics.TransactionDuration.Record(duration,
+                new KeyValuePair<string, object?>("transaction.type", transactionType),
+                new KeyValuePair<string, object?>("success", success));
+
+            BKSMetrics.ActiveTransactions.Add(-1, new KeyValuePair<string, object?>("transaction.type", transactionType));
+
+            if (success)
             {
-                // Se falhou, executar compensação
-                await CompensateAsync(transaction, cancellationToken);
-                return Result<TResult>.Failure(processResult.Error!);
+                BKSMetrics.TransactionCompleted.Add(1, new KeyValuePair<string, object?>("transaction.type", transactionType));
+
+                Logger.Info($"Transação {transactionType} concluída com sucesso - CorrelationId: {transaction.CorrelationId} - Duração: {duration:F3}s");
+
+                mainActivity?.SetStatus(ActivityStatusCode.Ok);
+                await PublishTransactionCompletedEvent(transaction);
+            }
+            else
+            {
+                BKSMetrics.TransactionFailed.Add(1,
+                    new KeyValuePair<string, object?>("transaction.type", transactionType),
+                    new KeyValuePair<string, object?>("error", result.Error ?? "Unknown error"));
+
+                Logger.Error($"Transação {transactionType} falhou - CorrelationId: {transaction.CorrelationId} - Erro: {result.Error} - Duração: {duration:F3}s");
+
+                mainActivity?.SetStatus(ActivityStatusCode.Error, result.Error ?? "Transaction failed");
+                await PublishTransactionFailedEvent(transaction, result.Error ?? "Unknown error");
             }
 
-            // 4. Pós-processamento (recebe resultado tipado)
-            var postProcessResult = await PostProcessAsync(transaction, processResult.Value!, cancellationToken);
-            // Pós-processamento não afeta o sucesso da transação
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            stopwatch.Stop();
 
-            return processResult; // Retorna o resultado tipado
+            Logger.Warn($"Transação {transactionType} cancelada - CorrelationId: {transaction.CorrelationId} - Duração: {stopwatch.Elapsed.TotalSeconds:F3}s");
+
+            mainActivity?.SetStatus(ActivityStatusCode.Error, "Transaction cancelled");
+            BKSMetrics.ActiveTransactions.Add(-1, new KeyValuePair<string, object?>("transaction.type", transactionType));
+
+            await PublishTransactionCancelledEvent(transaction);
+
+            return Result.Failure("Transaction was cancelled");
         }
         catch (Exception ex)
         {
-            await CompensateAsync(transaction, cancellationToken);
-            return Result<TResult>.Failure($"Erro interno: {ex.Message}");
+            stopwatch.Stop();
+
+            Logger.Error($"Erro inesperado na transação {transactionType} - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+
+            mainActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            mainActivity?.RecordException(ex);
+
+            BKSMetrics.TransactionFailed.Add(1,
+                new KeyValuePair<string, object?>("transaction.type", transactionType),
+                new KeyValuePair<string, object?>("error", "unexpected_exception"));
+            BKSMetrics.ActiveTransactions.Add(-1, new KeyValuePair<string, object?>("transaction.type", transactionType));
+
+            await PublishTransactionFailedEvent(transaction, ex.Message);
+
+            return Result.Failure($"Unexpected error: {ex.Message}");
         }
     }
 
-
-
-    // Métodos abstratos/virtuais
-    public abstract bool CanProcess(BaseTransaction transaction);
-
-    protected virtual async Task<Result> PreProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken)
-        => Result.Success();
-
-    protected abstract Task<Result<TResult>> ProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken);
-
-    protected virtual async Task<Result> PostProcessAsync(BaseTransaction transaction, TResult processResult, CancellationToken cancellationToken)
-        => Result.Success();
-
-    protected virtual async Task<Result> CompensateAsync(BaseTransaction transaction, CancellationToken cancellationToken)
-        => Result.Success();
-}
-
-
-
-public abstract class TransactionProcessor : ITransactionProcessor
-{
-    protected readonly IBKSLogger _logger;
-    protected readonly IBKSTracer _tracer;
-    protected readonly IEventBroker _eventBroker;
-
-    protected TransactionProcessor(
-        IServiceProvider serviceProvider,
-        IBKSLogger? logger,
-        IBKSTracer? tracer,
-        IEventBroker? eventBroker)
+    /// <summary>
+    /// Pipeline instrumentado de processamento
+    /// </summary>
+    private async Task<Result> ExecuteInstrumentedPipeline(BaseTransaction transaction, CancellationToken cancellationToken)
     {
-        _logger = logger;
-        _tracer = tracer;
-        _eventBroker = eventBroker;
-    }
-
-    public abstract bool CanProcess(BaseTransaction transaction);
-
-    public async Task<Result> ExecuteAsync(BaseTransaction transaction, CancellationToken cancellationToken = default)
-    {
-        using var mainSpan = _tracer.StartSpan($"transaction-pipeline-{transaction.GetType().Name}");
-
-        _logger.Info($"Iniciando pipeline de transação {transaction.CorrelationId}");
-
-        try
+        // 1. Pré-processamento
+        using (var preProcessActivity = ActivitySource.StartActivity("transaction.preprocess"))
         {
-            // 1. Validação inicial
-            var validationResult = await ValidateTransactionAsync(transaction, cancellationToken);
-            if (!validationResult.IsSuccess)
-            {
-                await OnProcessingFailedAsync(transaction, validationResult.Error!, cancellationToken);
-                return validationResult;
-            }
+            preProcessActivity?.SetTag("transaction.id", transaction.CorrelationId);
+            preProcessActivity?.SetTag("phase", "preprocess");
 
-            // 2. Publicar evento de início
-            await PublishTransactionStartedEventAsync(transaction);
-            transaction.Status = TransactionStatus.PreProcessing;
+            Logger.Trace($"Iniciando pré-processamento - CorrelationId: {transaction.CorrelationId}");
 
-            // 3. Pré-processamento
-            var preProcessResult = await ExecutePreProcessingAsync(transaction, cancellationToken);
+            var preProcessResult = await PreProcessAsync(transaction, cancellationToken);
             if (!preProcessResult.IsSuccess)
             {
-                await OnProcessingFailedAsync(transaction, preProcessResult.Error!, cancellationToken);
+                preProcessActivity?.SetStatus(ActivityStatusCode.Error, preProcessResult.Error);
                 return preProcessResult;
             }
 
-            transaction.Status = TransactionStatus.Processing;
+            preProcessActivity?.SetStatus(ActivityStatusCode.Ok);
+        }
 
-            // 4. Processamento principal
-            var processResult = await ExecuteProcessingAsync(transaction, cancellationToken);
+        // 2. Validação
+        using (var validationActivity = ActivitySource.StartActivity("transaction.validate"))
+        {
+            validationActivity?.SetTag("transaction.id", transaction.CorrelationId);
+            validationActivity?.SetTag("phase", "validation");
+
+            Logger.Trace($"Iniciando validação - CorrelationId: {transaction.CorrelationId}");
+
+            var validationResult = await ValidateAsync(transaction, cancellationToken);
+            if (!validationResult.IsValid)
+            {
+                var error = $"Validation failed: {string.Join(", ", validationResult.Errors)}";
+                validationActivity?.SetStatus(ActivityStatusCode.Error, error);
+                return Result.Failure(error);
+            }
+
+            validationActivity?.SetStatus(ActivityStatusCode.Ok);
+        }
+
+        // 3. Processamento principal
+        using (var processActivity = ActivitySource.StartActivity("transaction.process"))
+        {
+            processActivity?.SetTag("transaction.id", transaction.CorrelationId);
+            processActivity?.SetTag("phase", "process");
+
+            Logger.Trace($"Iniciando processamento principal - CorrelationId: {transaction.CorrelationId}");
+
+            var processResult = await ProcessAsync(transaction, cancellationToken);
             if (!processResult.IsSuccess)
             {
-                await OnProcessingFailedAsync(transaction, processResult.Error!, cancellationToken);
+                processActivity?.SetStatus(ActivityStatusCode.Error, processResult.Error);
                 return processResult;
             }
 
-            transaction.Status = TransactionStatus.PostProcessing;
+            processActivity?.SetStatus(ActivityStatusCode.Ok);
+        }
 
-            // 5. Pós-processamento
-            var postProcessResult = await ExecutePostProcessingAsync(transaction, cancellationToken);
+        // 4. Pós-processamento
+        using (var postProcessActivity = ActivitySource.StartActivity("transaction.postprocess"))
+        {
+            postProcessActivity?.SetTag("transaction.id", transaction.CorrelationId);
+            postProcessActivity?.SetTag("phase", "postprocess");
+
+            Logger.Trace($"Iniciando pós-processamento - CorrelationId: {transaction.CorrelationId}");
+
+            var postProcessResult = await PostProcessAsync(transaction, cancellationToken);
             if (!postProcessResult.IsSuccess)
             {
-                await OnProcessingFailedAsync(transaction, postProcessResult.Error!, cancellationToken);
+                postProcessActivity?.SetStatus(ActivityStatusCode.Error, postProcessResult.Error);
                 return postProcessResult;
             }
 
-            // 6. Finalização com sucesso
-            transaction.Status = TransactionStatus.Completed;
-            await PublishTransactionCompletedEventAsync(transaction);
+            postProcessActivity?.SetStatus(ActivityStatusCode.Ok);
+        }
 
-            _logger.Info($"Transação {transaction.CorrelationId} processada com sucesso");
-            return Result.Success();
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.Warn($"Transação {transaction.CorrelationId} foi cancelada");
-            transaction.Status = TransactionStatus.Cancelled;
-            await PublishTransactionCancelledEventAsync(transaction);
-            return Result.Failure("Operação cancelada");
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Erro inesperado na transação {transaction.CorrelationId}: {ex.Message}");
-            await OnProcessingFailedAsync(transaction, ex.Message, cancellationToken);
-            return Result.Failure($"Erro interno: {ex.Message}");
-        }
+        return Result.Success();
     }
 
-
-    private async Task<Result> ValidateTransactionAsync(BaseTransaction transaction, CancellationToken cancellationToken)
-    {
-        using var span = _tracer.StartSpan("transaction-validation");
-
-        // Validação de integridade
-        if (!transaction.VerifyIntegrity())
-        {
-            return Result.Failure("Integridade da transação comprometida");
-        }
-
-        // Validação específica da transação
-        var validationResult = transaction.ValidateTransaction();
-        if (!validationResult.IsValid)
-        {
-            return Result.Failure(string.Join(", ", validationResult.Errors));
-        }
-
-        // Validação customizada (pode ser sobrescrita)
-        return await ValidateAsync(transaction, cancellationToken);
-    }
-
-
-    private async Task<Result> ExecutePreProcessingAsync(BaseTransaction transaction, CancellationToken cancellationToken)
-    {
-        using var span = _tracer.StartSpan("transaction-pre-processing");
-
-        _logger.Info($"Iniciando pré-processamento da transação {transaction.CorrelationId}");
-
-        try
-        {
-            var result = await PreProcessAsync(transaction, cancellationToken);
-
-            if (result.IsSuccess)
-            {
-                _logger.Info($"Pré-processamento da transação {transaction.CorrelationId} concluído");
-            }
-            else
-            {
-                _logger.Warn($"Falha no pré-processamento da transação {transaction.CorrelationId}: {result.Error}");
-            }
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Erro no pré-processamento da transação {transaction.CorrelationId}: {ex.Message}");
-            return Result.Failure($"Erro no pré-processamento: {ex.Message}");
-        }
-    }
-
-
-    private async Task<Result> ExecuteProcessingAsync(BaseTransaction transaction, CancellationToken cancellationToken)
-    {
-        using var span = _tracer.StartSpan("transaction-processing");
-
-        _logger.Info($"Iniciando processamento da transação {transaction.CorrelationId}");
-
-        try
-        {
-            var result = await ProcessAsync(transaction, cancellationToken);
-
-            if (result.IsSuccess)
-            {
-                _logger.Info($"Processamento da transação {transaction.CorrelationId} concluído");
-            }
-            else
-            {
-                _logger.Warn($"Falha no processamento da transação {transaction.CorrelationId}: {result.Error}");
-            }
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Erro no processamento da transação {transaction.CorrelationId}: {ex.Message}");
-            return Result.Failure($"Erro no processamento: {ex.Message}");
-        }
-    }
-
-
-    private async Task<Result> ExecutePostProcessingAsync(BaseTransaction transaction, CancellationToken cancellationToken)
-    {
-        using var span = _tracer.StartSpan("transaction-post-processing");
-
-        _logger.Info($"Iniciando pós-processamento da transação {transaction.CorrelationId}");
-
-        try
-        {
-            var result = await PostProcessAsync(transaction, cancellationToken);
-
-            if (result.IsSuccess)
-            {
-                _logger.Info($"Pós-processamento da transação {transaction.CorrelationId} concluído");
-            }
-            else
-            {
-                _logger.Warn($"Falha no pós-processamento da transação {transaction.CorrelationId}: {result.Error}");
-            }
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Erro no pós-processamento da transação {transaction.CorrelationId}: {ex.Message}");
-            return Result.Failure($"Erro no pós-processamento: {ex.Message}");
-        }
-    }
-
-    private async Task OnProcessingFailedAsync(BaseTransaction transaction, string error, CancellationToken cancellationToken)
-    {
-        transaction.Status = TransactionStatus.Failed;
-        transaction.AddMetadata("error", error);
-        transaction.AddMetadata("failed_at", DateTime.UtcNow);
-
-        await PublishTransactionFailedEventAsync(transaction, error);
-
-        // Executar compensação se necessário
-        try
-        {
-            await CompensateAsync(transaction, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Erro na compensação da transação {transaction.CorrelationId}: {ex.Message}");
-        }
-    }
-
-    #region Métodos Virtuais para Sobrescrita
-
-
-    protected virtual Task<Result> ValidateAsync(BaseTransaction transaction, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(Result.Success());
-    }
-
-
-    protected virtual Task<Result> PreProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(Result.Success());
-    }
-
-
+    /// <summary>
+    /// Método abstrato que deve ser implementado pelas classes filhas
+    /// </summary>
     protected abstract Task<Result> ProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken);
 
-
-    protected virtual Task<Result> PostProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken)
+    /// <summary>
+    /// Pré-processamento - pode ser sobrescrito pelas classes filhas
+    /// </summary>
+    protected virtual Task<Result> PreProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken)
     {
+        Logger.Trace($"Pré-processamento padrão - CorrelationId: {transaction.CorrelationId}");
         return Task.FromResult(Result.Success());
     }
 
-
-    protected virtual Task CompensateAsync(BaseTransaction transaction, CancellationToken cancellationToken)
+    /// <summary>
+    /// Validação - pode ser sobrescrita pelas classes filhas
+    /// </summary>
+    protected virtual Task<ValidationResult> ValidateAsync(BaseTransaction transaction, CancellationToken cancellationToken)
     {
-        return Task.CompletedTask;
+        Logger.Trace($"Validação padrão - CorrelationId: {transaction.CorrelationId}");
+        return Task.FromResult(ValidationResult.Success());
+    }
+
+    /// <summary>
+    /// Pós-processamento - pode ser sobrescrito pelas classes filhas
+    /// </summary>
+    protected virtual Task<Result> PostProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken)
+    {
+        Logger.Trace($"Pós-processamento padrão - CorrelationId: {transaction.CorrelationId}");
+        return Task.FromResult(Result.Success());
+    }
+
+    #region Event Publishing
+
+    private async Task PublishTransactionStartedEvent(BaseTransaction transaction)
+    {
+        try
+        {
+            var startedEvent = new TransactionStartedEvent
+            {
+                TransactionId = transaction.CorrelationId,
+                TransactionType = transaction.GetType().Name,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await EventBroker.PublishAsync(startedEvent);
+            Logger.Trace($"Evento TransactionStarted publicado - CorrelationId: {transaction.CorrelationId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Falha ao publicar evento TransactionStarted - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+        }
+    }
+
+    private async Task PublishTransactionCompletedEvent(BaseTransaction transaction)
+    {
+        try
+        {
+            var completedEvent = new TransactionCompletedEvent
+            {
+                TransactionId = transaction.CorrelationId,
+                TransactionType = transaction.GetType().Name,
+                CompletedAt = DateTime.UtcNow
+            };
+
+            await EventBroker.PublishAsync(completedEvent);
+            Logger.Trace($"Evento TransactionCompleted publicado - CorrelationId: {transaction.CorrelationId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Falha ao publicar evento TransactionCompleted - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+        }
+    }
+
+    private async Task PublishTransactionFailedEvent(BaseTransaction transaction, string error)
+    {
+        try
+        {
+            var failedEvent = new TransactionFailedEvent
+            {
+                TransactionId = transaction.CorrelationId,
+                TransactionType = transaction.GetType().Name,
+                Error = error,
+                FailedAt = DateTime.UtcNow
+            };
+
+            await EventBroker.PublishAsync(failedEvent);
+            Logger.Trace($"Evento TransactionFailed publicado - CorrelationId: {transaction.CorrelationId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Falha ao publicar evento TransactionFailed - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+        }
+    }
+
+    private async Task PublishTransactionCancelledEvent(BaseTransaction transaction)
+    {
+        try
+        {
+            var cancelledEvent = new TransactionCancelledEvent
+            {
+                TransactionId = transaction.CorrelationId,
+                TransactionType = transaction.GetType().Name,
+                CancelledAt = DateTime.UtcNow
+            };
+
+            await EventBroker.PublishAsync(cancelledEvent);
+            Logger.Trace($"Evento TransactionCancelled publicado - CorrelationId: {transaction.CorrelationId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Falha ao publicar evento TransactionCancelled - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+        }
     }
 
     #endregion
+}
 
-    #region Eventos de Domínio
+/// <summary>
+/// Classe base genérica para processadores de transação com resultado tipado e instrumentação completa
+/// </summary>
+public abstract class TransactionProcessor<TResult> : ITransactionProcessor<TResult>
+{
+    private static readonly ActivitySource ActivitySource = new("bks.sdk.transactions");
 
- 
-    protected virtual async Task PublishTransactionStartedEventAsync(BaseTransaction transaction)
+    protected readonly IBKSLogger Logger;
+    protected readonly IEventBroker EventBroker;
+    protected readonly IBKSTracer Tracer;
+
+
+    protected TransactionProcessor(
+        IServiceProvider serviceProvider,
+        IBKSLogger logger,
+        IBKSTracer tracer,   
+        IEventBroker eventBroker)
     {
-        await PublishDomainEventAsync(new TransactionStartedEvent
-        {
-            TransactionId = transaction.CorrelationId,
-            TransactionType = transaction.GetType().Name,
-            CreatedAt = transaction.CreatedAt
-        });
+        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        EventBroker = eventBroker ?? throw new ArgumentNullException(nameof(eventBroker));
+        Tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
     }
 
+    /// <summary>
+    /// Verifica se este processador pode processar a transação especificada
+    /// </summary>
+    public abstract bool CanProcess(BaseTransaction transaction);
 
-    protected virtual async Task PublishTransactionCompletedEventAsync(BaseTransaction transaction)
+    /// <summary>
+    /// Executa uma transação com resultado tipado e instrumentação completa
+    /// </summary>
+    public async Task<Result<TResult>> ExecuteAsync(BaseTransaction transaction, CancellationToken cancellationToken = default)
     {
-        await PublishDomainEventAsync(new TransactionCompletedEvent
+        if (transaction == null)
         {
-            TransactionId = transaction.CorrelationId,
-            TransactionType = transaction.GetType().Name,
-            CompletedAt = DateTime.UtcNow
-        });
-    }
+            const string error = "Transaction cannot be null";
+            Logger.Error(error);
+            return Result<TResult>.Failure(error);
+        }
 
-
-    protected virtual async Task PublishTransactionFailedEventAsync(BaseTransaction transaction, string error)
-    {
-        await PublishDomainEventAsync(new TransactionFailedEvent
+        if (!CanProcess(transaction))
         {
-            TransactionId = transaction.CorrelationId,
-            TransactionType = transaction.GetType().Name,
-            Error = error,
-            FailedAt = DateTime.UtcNow
-        });
-    }
+            const string error = "This processor cannot handle the specified transaction type";
+            Logger.Error($"{error} - Transaction: {transaction.GetType().Name}");
+            return Result<TResult>.Failure(error);
+        }
 
+        var transactionType = transaction.GetType().Name;
+        var resultType = typeof(TResult).Name;
+        var stopwatch = Stopwatch.StartNew();
 
-    protected virtual async Task PublishTransactionCancelledEventAsync(BaseTransaction transaction)
-    {
-        await PublishDomainEventAsync(new TransactionCancelledEvent
-        {
-            TransactionId = transaction.CorrelationId,
-            TransactionType = transaction.GetType().Name,
-            CancelledAt = DateTime.UtcNow
-        });
-    }
+        // Criar span principal para toda a operação
+        using var mainActivity = ActivitySource.StartActivity("transaction.execute_typed");
+        mainActivity?.SetTag("transaction.id", transaction.CorrelationId);
+        mainActivity?.SetTag("transaction.type", transactionType);
+        mainActivity?.SetTag("transaction.correlation_id", transaction.CorrelationId);
+        mainActivity?.SetTag("result.type", resultType);
 
-
-    protected async Task PublishDomainEventAsync(IDomainEvent domainEvent)
-    {
         try
         {
-            await _eventBroker.PublishAsync(domainEvent);
-            _logger.Info($"Evento {domainEvent.EventType} publicado para transação");
+            Logger.Info($"Iniciando processamento da transação tipada {transactionType}<{resultType}> - CorrelationId: {transaction.CorrelationId}");
+
+            // Registrar início nos metrics
+            BKSMetrics.TransactionStarted.Add(1,
+                new KeyValuePair<string, object?>("transaction.type", transactionType),
+                new KeyValuePair<string, object?>("result.type", resultType));
+            BKSMetrics.ActiveTransactions.Add(1,
+                new KeyValuePair<string, object?>("transaction.type", transactionType));
+
+            // Publicar evento de início
+            await PublishTransactionStartedEvent(transaction);
+
+            // Pipeline de processamento com instrumentação
+            var result = await ExecuteInstrumentedPipeline(transaction, cancellationToken);
+
+            stopwatch.Stop();
+
+            // Registrar métricas finais
+            var success = result.IsSuccess;
+            var duration = stopwatch.Elapsed.TotalSeconds;
+
+            BKSMetrics.TransactionDuration.Record(duration,
+                new KeyValuePair<string, object?>("transaction.type", transactionType),
+                new KeyValuePair<string, object?>("result.type", resultType),
+                new KeyValuePair<string, object?>("success", success));
+
+            BKSMetrics.ActiveTransactions.Add(-1, new KeyValuePair<string, object?>("transaction.type", transactionType));
+
+            if (success)
+            {
+                BKSMetrics.TransactionCompleted.Add(1,
+                    new KeyValuePair<string, object?>("transaction.type", transactionType),
+                    new KeyValuePair<string, object?>("result.type", resultType));
+
+                Logger.Info($"Transação tipada {transactionType}<{resultType}> concluída com sucesso - CorrelationId: {transaction.CorrelationId} - Duração: {duration:F3}s");
+
+                mainActivity?.SetStatus(ActivityStatusCode.Ok);
+                await PublishTransactionCompletedEvent(transaction);
+            }
+            else
+            {
+                BKSMetrics.TransactionFailed.Add(1,
+                    new KeyValuePair<string, object?>("transaction.type", transactionType),
+                    new KeyValuePair<string, object?>("result.type", resultType),
+                    new KeyValuePair<string, object?>("error", result.Error ?? "Unknown error"));
+
+                Logger.Error($"Transação tipada {transactionType}<{resultType}> falhou - CorrelationId: {transaction.CorrelationId} - Erro: {result.Error} - Duração: {duration:F3}s");
+
+                mainActivity?.SetStatus(ActivityStatusCode.Error, result.Error ?? "Transaction failed");
+                await PublishTransactionFailedEvent(transaction, result.Error ?? "Unknown error");
+            }
+
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            stopwatch.Stop();
+
+            Logger.Warn($"Transação tipada {transactionType}<{resultType}> cancelada - CorrelationId: {transaction.CorrelationId} - Duração: {stopwatch.Elapsed.TotalSeconds:F3}s");
+
+            mainActivity?.SetStatus(ActivityStatusCode.Error, "Transaction cancelled");
+            BKSMetrics.ActiveTransactions.Add(-1, new KeyValuePair<string, object?>("transaction.type", transactionType));
+
+            await PublishTransactionCancelledEvent(transaction);
+
+            return Result<TResult>.Failure("Transaction was cancelled");
         }
         catch (Exception ex)
         {
-            _logger.Error($"Erro ao publicar evento {domainEvent.EventType}: {ex.Message}");
+            stopwatch.Stop();
+
+            Logger.Error($"Erro inesperado na transação tipada {transactionType}<{resultType}> - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+
+            mainActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            mainActivity?.RecordException(ex);
+
+            BKSMetrics.TransactionFailed.Add(1,
+                new KeyValuePair<string, object?>("transaction.type", transactionType),
+                new KeyValuePair<string, object?>("result.type", resultType),
+                new KeyValuePair<string, object?>("error", "unexpected_exception"));
+            BKSMetrics.ActiveTransactions.Add(-1, new KeyValuePair<string, object?>("transaction.type", transactionType));
+
+            await PublishTransactionFailedEvent(transaction, ex.Message);
+
+            return Result<TResult>.Failure($"Unexpected error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Pipeline instrumentado de processamento com resultado tipado
+    /// </summary>
+    private async Task<Result<TResult>> ExecuteInstrumentedPipeline(BaseTransaction transaction, CancellationToken cancellationToken)
+    {
+        // 1. Pré-processamento
+        using (var preProcessActivity = ActivitySource.StartActivity("transaction.preprocess"))
+        {
+            preProcessActivity?.SetTag("transaction.id", transaction.CorrelationId);
+            preProcessActivity?.SetTag("phase", "preprocess");
+            preProcessActivity?.SetTag("result.type", typeof(TResult).Name);
+
+            Logger.Trace($"Iniciando pré-processamento tipado - CorrelationId: {transaction.CorrelationId}");
+
+            var preProcessResult = await PreProcessAsync(transaction, cancellationToken);
+            if (!preProcessResult.IsSuccess)
+            {
+                preProcessActivity?.SetStatus(ActivityStatusCode.Error, preProcessResult.Error);
+                return Result<TResult>.Failure(preProcessResult.Error);
+            }
+
+            preProcessActivity?.SetStatus(ActivityStatusCode.Ok);
+        }
+
+        // 2. Validação
+        using (var validationActivity = ActivitySource.StartActivity("transaction.validate"))
+        {
+            validationActivity?.SetTag("transaction.id", transaction.CorrelationId);
+            validationActivity?.SetTag("phase", "validation");
+            validationActivity?.SetTag("result.type", typeof(TResult).Name);
+
+            Logger.Trace($"Iniciando validação tipada - CorrelationId: {transaction.CorrelationId}");
+
+            var validationResult = await ValidateAsync(transaction, cancellationToken);
+            if (!validationResult.IsValid)
+            {
+                var error = $"Validation failed: {string.Join(", ", validationResult.Errors)}";
+                validationActivity?.SetStatus(ActivityStatusCode.Error, error);
+                return Result<TResult>.Failure(error);
+            }
+
+            validationActivity?.SetStatus(ActivityStatusCode.Ok);
+        }
+
+        // 3. Processamento principal
+        using (var processActivity = ActivitySource.StartActivity("transaction.process"))
+        {
+            processActivity?.SetTag("transaction.id", transaction.CorrelationId);
+            processActivity?.SetTag("phase", "process");
+            processActivity?.SetTag("result.type", typeof(TResult).Name);
+
+            Logger.Trace($"Iniciando processamento principal tipado - CorrelationId: {transaction.CorrelationId}");
+
+            var processResult = await ProcessAsync(transaction, cancellationToken);
+            if (!processResult.IsSuccess)
+            {
+                processActivity?.SetStatus(ActivityStatusCode.Error, processResult.Error);
+                return processResult;
+            }
+
+            // Adicionar informações sobre o resultado ao span
+            if (processResult.Value != null)
+            {
+                try
+                {
+                    var resultJson = JsonSerializer.Serialize(processResult.Value);
+                    processActivity?.SetTag("result.value", resultJson);
+                }
+                catch
+                {
+                    processActivity?.SetTag("result.value", processResult.Value.ToString());
+                }
+            }
+
+            processActivity?.SetStatus(ActivityStatusCode.Ok);
+
+            // Continuar com o resultado do processamento
+            var typedResult = processResult;
+
+            // 4. Pós-processamento
+            using (var postProcessActivity = ActivitySource.StartActivity("transaction.postprocess"))
+            {
+                postProcessActivity?.SetTag("transaction.id", transaction.CorrelationId);
+                postProcessActivity?.SetTag("phase", "postprocess");
+                postProcessActivity?.SetTag("result.type", typeof(TResult).Name);
+
+                Logger.Trace($"Iniciando pós-processamento tipado - CorrelationId: {transaction.CorrelationId}");
+
+                var postProcessResult = await PostProcessAsync(transaction, typedResult.Value, cancellationToken);
+                if (!postProcessResult.IsSuccess)
+                {
+                    postProcessActivity?.SetStatus(ActivityStatusCode.Error, postProcessResult.Error);
+                    return Result<TResult>.Failure(postProcessResult.Error);
+                }
+
+                postProcessActivity?.SetStatus(ActivityStatusCode.Ok);
+            }
+
+            return typedResult;
+        }
+    }
+
+    /// <summary>
+    /// Método abstrato que deve ser implementado pelas classes filhas
+    /// </summary>
+    protected abstract Task<Result<TResult>> ProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Pré-processamento - pode ser sobrescrito pelas classes filhas
+    /// </summary>
+    protected virtual Task<Result> PreProcessAsync(BaseTransaction transaction, CancellationToken cancellationToken)
+    {
+        Logger.Trace($"Pré-processamento tipado padrão - CorrelationId: {transaction.CorrelationId}");
+        return Task.FromResult(Result.Success());
+    }
+
+    /// <summary>
+    /// Validação - pode ser sobrescrita pelas classes filhas
+    /// </summary>
+    protected virtual Task<ValidationResult> ValidateAsync(BaseTransaction transaction, CancellationToken cancellationToken)
+    {
+        Logger.Trace($"Validação tipada padrão - CorrelationId: {transaction.CorrelationId}");
+        return Task.FromResult(ValidationResult.Success());
+    }
+
+    /// <summary>
+    /// Pós-processamento - pode ser sobrescrito pelas classes filhas
+    /// </summary>
+    protected virtual Task<Result> PostProcessAsync(BaseTransaction transaction, TResult? result, CancellationToken cancellationToken)
+    {
+        Logger.Trace($"Pós-processamento tipado padrão - CorrelationId: {transaction.CorrelationId}");
+        return Task.FromResult(Result.Success());
+    }
+
+
+    protected virtual async Task<Result> CompensateAsync(BaseTransaction transaction, CancellationToken cancellationToken)
+    {
+        return Result.Success();
+    }
+
+    #region Event Publishing
+
+    private async Task PublishTransactionStartedEvent(BaseTransaction transaction)
+    {
+        try
+        {
+            var startedEvent = new TransactionStartedEvent
+            {
+                TransactionId = transaction.CorrelationId,
+                TransactionType = $"{transaction.GetType().Name}<{typeof(TResult).Name}>",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await EventBroker.PublishAsync(startedEvent);
+            Logger.Trace($"Evento TransactionStarted tipado publicado - CorrelationId: {transaction.CorrelationId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Falha ao publicar evento TransactionStarted tipado - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+        }
+    }
+
+    private async Task PublishTransactionCompletedEvent(BaseTransaction transaction)
+    {
+        try
+        {
+            var completedEvent = new TransactionCompletedEvent
+            {
+                TransactionId = transaction.CorrelationId,
+                TransactionType = $"{transaction.GetType().Name}<{typeof(TResult).Name}>",
+                CompletedAt = DateTime.UtcNow
+            };
+
+            await EventBroker.PublishAsync(completedEvent);
+            Logger.Trace($"Evento TransactionCompleted tipado publicado - CorrelationId: {transaction.CorrelationId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Falha ao publicar evento TransactionCompleted tipado - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+        }
+    }
+
+    private async Task PublishTransactionFailedEvent(BaseTransaction transaction, string error)
+    {
+        try
+        {
+            var failedEvent = new TransactionFailedEvent
+            {
+                TransactionId = transaction.CorrelationId,
+                TransactionType = $"{transaction.GetType().Name}<{typeof(TResult).Name}>",
+                Error = error,
+                FailedAt = DateTime.UtcNow
+            };
+
+            await EventBroker.PublishAsync(failedEvent);
+            Logger.Trace($"Evento TransactionFailed tipado publicado - CorrelationId: {transaction.CorrelationId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Falha ao publicar evento TransactionFailed tipado - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
+        }
+    }
+
+    private async Task PublishTransactionCancelledEvent(BaseTransaction transaction)
+    {
+        try
+        {
+            var cancelledEvent = new TransactionCancelledEvent
+            {
+                TransactionId = transaction.CorrelationId,
+                TransactionType = $"{transaction.GetType().Name}<{typeof(TResult).Name}>",
+                CancelledAt = DateTime.UtcNow
+            };
+
+            await EventBroker.PublishAsync(cancelledEvent);
+            Logger.Trace($"Evento TransactionCancelled tipado publicado - CorrelationId: {transaction.CorrelationId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Falha ao publicar evento TransactionCancelled tipado - CorrelationId: {transaction.CorrelationId} - Erro: {ex.Message}");
         }
     }
 

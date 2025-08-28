@@ -1,33 +1,54 @@
-
 using bks.sdk.Common.Results;
-using bks.sdk.Enum;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
 namespace bks.sdk.Transactions;
 
+/// <summary>
+/// Classe base para todas as transações do sistema
+/// </summary>
 public abstract record BaseTransaction
 {
+  
+    /// <summary>
+    /// ID de correlação para rastreamento distribuído
+    /// </summary>
+    public string CorrelationId { get; init; } = Guid.NewGuid().ToString("N");
 
-    public string CorrelationId { get; private init; } = Guid.NewGuid().ToString("N");
+    /// <summary>
+    /// Data e hora de criação da transação
+    /// </summary>
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 
-    public DateTime CreatedAt { get; private init; } = DateTime.UtcNow;
+    /// <summary>
+    /// Status atual da transação
+    /// </summary>
+    public bks.sdk.Enum.TransactionStatus Status { get; init; } = bks.sdk.Enum.TransactionStatus.Created;
 
-    public string IntegrityHash { get; private init; } = string.Empty;
+    /// <summary>
+    /// Metadata adicional da transação
+    /// </summary>
+    public Dictionary<string, object> Metadata { get; init; } = new();
 
-    public TransactionStatus Status { get; internal set; } = TransactionStatus.Created;
+    /// <summary>
+    /// Chave privada para criptografia (deve ser configurada via SDK)
+    /// </summary>
+    private static readonly byte[] DefaultEncryptionKey = Encoding.UTF8.GetBytes("bks-sdk-2025-default-encryption-key32"); // 32 bytes para AES-256
 
-    public Dictionary<string, object> Metadata { get; private init; } = new();
-
-    protected BaseTransaction()
+    /// <summary>
+    /// Serializa a transação para JSON
+    /// </summary>
+    /// <returns>JSON representando a transação</returns>
+    public string Serialize()
     {
-        IntegrityHash = GenerateIntegrityHash();
-    }
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false
+        };
 
-    public static T Create<T>() where T : BaseTransaction, new()
-    {
-        return new T();
+        return JsonSerializer.Serialize(this, GetType(), options);
     }
 
     public virtual ValidationResult ValidateTransaction()
@@ -45,46 +66,20 @@ public abstract record BaseTransaction
             : ValidationResult.Failure(errors);
     }
 
-    public string GenerateToken()
-    {
-        var data = new
-        {
-            CorrelationId,
-            Type = GetType().Name,
-            CreatedAt = CreatedAt.ToString("O"),
-            IntegrityHash,
-            Payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(Serialize()))
-        };
-
-        var jsonData = JsonSerializer.Serialize(data);
-        var encryptedData = EncryptData(jsonData);
-
-        return Convert.ToBase64String(encryptedData);
-    }
-
-
-    public string Serialize()
-    {
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = false,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
-
-        return JsonSerializer.Serialize(this, GetType(), options);
-    }
-
-
+    /// <summary>
+    /// Deserializa uma transação a partir de JSON
+    /// </summary>
+    /// <typeparam name="T">Tipo da transação</typeparam>
+    /// <param name="json">JSON da transação</param>
+    /// <returns>Instância da transação ou null se inválida</returns>
     public static T? Deserialize<T>(string json) where T : BaseTransaction
     {
-        if (string.IsNullOrWhiteSpace(json))
-            return null;
-
         try
         {
             var options = new JsonSerializerOptions
             {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
             };
 
             return JsonSerializer.Deserialize<T>(json, options);
@@ -95,71 +90,171 @@ public abstract record BaseTransaction
         }
     }
 
-    public void AddMetadata(string key, object value)
+    /// <summary>
+    /// Criptografa dados usando AES-256
+    /// </summary>
+    /// <param name="plainText">Texto a ser criptografado</param>
+    /// <param name="encryptionKey">Chave de criptografia (opcional, usa padrão se não fornecida)</param>
+    /// <returns>Dados criptografados</returns>
+    public static byte[] EncryptData(string plainText, byte[]? encryptionKey = null)
     {
-        Metadata[key] = value;
-    }
+        if (string.IsNullOrWhiteSpace(plainText))
+            throw new ArgumentException("Plain text cannot be null or empty", nameof(plainText));
 
-    public T? GetMetadata<T>(string key)
-    {
-        if (Metadata.TryGetValue(key, out var value))
-        {
-            try
-            {
-                return (T)value;
-            }
-            catch
-            {
-                return default;
-            }
-        }
-        return default;
-    }
-
- 
-    public bool VerifyIntegrity()
-    {
-        var currentHash = GenerateIntegrityHash();
-        return string.Equals(IntegrityHash, currentHash, StringComparison.Ordinal);
-    }
-
-
-    private string GenerateIntegrityHash()
-    {
-        var data = $"{CorrelationId}|{GetType().Name}|{CreatedAt:O}|{JsonSerializer.Serialize(this, GetType())}";
-        using var sha256 = SHA256.Create();
-        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(data));
-        return Convert.ToBase64String(hashBytes);
-    }
-
-
-    private static byte[] EncryptData(string data)
-    {
-        // Usar chave fixa para demonstração - em produção, usar chave do SDK
-        var key = Encoding.UTF8.GetBytes("BKS-SDK-2025-KEY-32-BYTES-LONG!"); // 32 bytes
-        var iv = new byte[16]; // IV zero para demonstração
+        var key = encryptionKey ?? DefaultEncryptionKey;
 
         using var aes = Aes.Create();
         aes.Key = key;
-        aes.IV = iv;
+        aes.GenerateIV();
 
         using var encryptor = aes.CreateEncryptor();
-        var dataBytes = Encoding.UTF8.GetBytes(data);
-        return encryptor.TransformFinalBlock(dataBytes, 0, dataBytes.Length);
+        using var msEncrypt = new MemoryStream();
+
+        // Escrever o IV no início do stream
+        msEncrypt.Write(aes.IV, 0, aes.IV.Length);
+
+        using (var csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write))
+        using (var swEncrypt = new StreamWriter(csEncrypt))
+        {
+            swEncrypt.Write(plainText);
+        }
+
+        return msEncrypt.ToArray();
     }
 
-
-    internal static string DecryptData(byte[] encryptedData)
+    /// <summary>
+    /// Descriptografa dados usando AES-256
+    /// </summary>
+    /// <param name="cipherData">Dados criptografados</param>
+    /// <param name="encryptionKey">Chave de criptografia (opcional, usa padrão se não fornecida)</param>
+    /// <returns>Texto descriptografado</returns>
+    public static string DecryptData(byte[] cipherData, byte[]? encryptionKey = null)
     {
-        var key = Encoding.UTF8.GetBytes("BKS-SDK-2025-KEY-32-BYTES-LONG!");
-        var iv = new byte[16];
+        if (cipherData == null || cipherData.Length == 0)
+            throw new ArgumentException("Cipher data cannot be null or empty", nameof(cipherData));
+
+        var key = encryptionKey ?? DefaultEncryptionKey;
 
         using var aes = Aes.Create();
         aes.Key = key;
+
+        using var msDecrypt = new MemoryStream(cipherData);
+
+        // Ler o IV do início do stream
+        var iv = new byte[aes.IV.Length];
+        msDecrypt.Read(iv, 0, iv.Length);
         aes.IV = iv;
 
         using var decryptor = aes.CreateDecryptor();
-        var decryptedBytes = decryptor.TransformFinalBlock(encryptedData, 0, encryptedData.Length);
-        return Encoding.UTF8.GetString(decryptedBytes);
+        using var csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read);
+        using var srDecrypt = new StreamReader(csDecrypt);
+
+        return srDecrypt.ReadToEnd();
+    }
+
+    /// <summary>
+    /// Gera um token criptografado da transação
+    /// </summary>
+    /// <returns>Token criptografado base64</returns>
+    public string GenerateToken()
+    {
+        var tokenData = new TransactionTokenData
+        {
+            CorrelationId = CorrelationId,
+            Type = GetType().Name,
+            CreatedAt = CreatedAt.ToString("O"),
+            Payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(Serialize())),
+            IntegrityHash = GenerateIntegrityHash()
+        };
+
+        var tokenJson = JsonSerializer.Serialize(tokenData, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+
+        var encryptedData = EncryptData(tokenJson);
+        return Convert.ToBase64String(encryptedData);
+    }
+
+    /// <summary>
+    /// Gera um hash de integridade para a transação
+    /// </summary>
+    /// <returns>Hash SHA-256 da transação</returns>
+    private string GenerateIntegrityHash()
+    {
+        var dataToHash = $"{CorrelationId}|{CreatedAt:O}|{GetType().Name}";
+        using var sha256 = SHA256.Create();
+        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(dataToHash));
+        return Convert.ToBase64String(hashBytes);
+    }
+
+    /// <summary>
+    /// Cria uma nova transação com status atualizado
+    /// </summary>
+    /// <param name="newStatus">Novo status</param>
+    /// <returns>Nova instância da transação com status atualizado</returns>
+    public virtual BaseTransaction WithStatus(bks.sdk.Enum.TransactionStatus newStatus)
+    {
+        return this with { Status = newStatus };
+    }
+
+    /// <summary>
+    /// Adiciona metadata à transação
+    /// </summary>
+    /// <param name="key">Chave do metadata</param>
+    /// <param name="value">Valor do metadata</param>
+    /// <returns>Nova instância da transação com metadata adicionado</returns>
+    public virtual BaseTransaction WithMetadata(string key, object value)
+    {
+        var newMetadata = new Dictionary<string, object>(Metadata)
+        {
+            [key] = value
+        };
+        return this with { Metadata = newMetadata };
+    }
+
+    /// <summary>
+    /// Obtém um valor de metadata tipado
+    /// </summary>
+    /// <typeparam name="T">Tipo do valor</typeparam>
+    /// <param name="key">Chave do metadata</param>
+    /// <returns>Valor tipado ou valor padrão</returns>
+    public T? GetMetadata<T>(string key)
+    {
+        if (!Metadata.TryGetValue(key, out var value))
+            return default;
+
+        try
+        {
+            if (value is T typedValue)
+                return typedValue;
+
+            if (value is JsonElement jsonElement)
+            {
+                return jsonElement.Deserialize<T>();
+            }
+
+            return (T)Convert.ChangeType(value, typeof(T));
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
+    /// <summary>
+    /// Verifica se a transação possui um metadata específico
+    /// </summary>
+    /// <param name="key">Chave do metadata</param>
+    /// <returns>True se existe, false caso contrário</returns>
+    public bool HasMetadata(string key) => Metadata.ContainsKey(key);
+
+    /// <summary>
+    /// Representação string da transação para logs
+    /// </summary>
+    /// <returns>String representando a transação</returns>
+    public override string ToString()
+    {
+        return $"{GetType().Name} {{ CorrelationId: {CorrelationId}, Status: {Status}, CreatedAt: {CreatedAt:yyyy-MM-dd HH:mm:ss} }}";
     }
 }
