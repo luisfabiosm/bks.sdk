@@ -1,4 +1,4 @@
-﻿using bks.sdk.Transactions;
+﻿using bks.sdk.Processing.Transactions;
 using Domain.Core.Interfaces.Domain;
 using Domain.Core.Models.Results;
 using Domain.Processors;

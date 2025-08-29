@@ -1,4 +1,4 @@
-﻿using bks.sdk.Transactions;
+﻿using bks.sdk.Processing.Transactions;
 using Domain.Core.Interfaces.Outbound;
 using Domain.Core.Models.DTOs.Request;
 using Domain.Core.Models.DTOs.Response;

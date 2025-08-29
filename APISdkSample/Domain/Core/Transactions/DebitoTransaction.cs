@@ -1,5 +1,5 @@
 ﻿using bks.sdk.Common.Results;
-using bks.sdk.Transactions;
+using bks.sdk.Processing.Transactions.Abstractions;
 using Domain.Core.Models.DTOs.Request;
 
 namespace Domain.Core.Transactions
