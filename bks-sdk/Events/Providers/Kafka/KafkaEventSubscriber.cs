@@ -115,7 +115,7 @@ public class KafkaEventSubscriber : IEventSubscriber, IDisposable
                             PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
                         });
 
-                    if (eventData?.Data != null)
+                    if (eventData.Data != null)
                     {
                         await handler(eventData.Data, cancellationToken);
                     }

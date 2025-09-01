@@ -2,22 +2,29 @@
 using bks.sdk.Events.Publishers;
 using bks.sdk.Observability.Logging;
 using RabbitMQ.Client;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace bks.sdk.Events.Providers.RabbitMQ;
 
-public class RabbitMQEventPublisher : EventPublisherBase, IDisposable
+public class RabbitMQEventPublisher : EventPublisherBase, IAsyncDisposable
 {
-    private readonly IConnection _connection;
-    private readonly IModel _channel;
-    private readonly string _exchangeName;
+    private  IConnection _connection;
+    private  IChannel _channel;
+    private  string _exchangeName;
 
     public RabbitMQEventPublisher(BKSFrameworkSettings settings, IBKSLogger logger)
         : base(settings, logger)
+    {
+    }
+
+    public static async Task<RabbitMQEventPublisher> CreateAsync(BKSFrameworkSettings settings, IBKSLogger logger)
+    {
+        var publisher = new RabbitMQEventPublisher(settings, logger);
+        await publisher.InitializeAsync();
+        return publisher;
+    }
+
+    private async Task InitializeAsync()
     {
         try
         {
@@ -25,15 +32,15 @@ public class RabbitMQEventPublisher : EventPublisherBase, IDisposable
 
             var factory = new ConnectionFactory
             {
-                Uri = new Uri(Settings.Events.ConnectionString),
-                DispatchConsumersAsync = true
+                Uri = new Uri(Settings.Events.ConnectionString)
+                // DispatchConsumersAsync removido - não é mais necessário na v7+
             };
 
-            _connection = factory.CreateConnection();
-            _channel = _connection.CreateModel();
+            _connection = await factory.CreateConnectionAsync();
+            _channel = await _connection.CreateChannelAsync();
 
             // Declarar exchange
-            _channel.ExchangeDeclare(
+            await _channel.ExchangeDeclareAsync(
                 exchange: _exchangeName,
                 type: ExchangeType.Topic,
                 durable: true,
@@ -58,24 +65,26 @@ public class RabbitMQEventPublisher : EventPublisherBase, IDisposable
         {
             var body = Encoding.UTF8.GetBytes(message);
 
-            var properties = _channel.CreateBasicProperties();
-            properties.Persistent = true;
-            properties.MessageId = domainEvent.EventId;
-            properties.Timestamp = new AmqpTimestamp(((DateTimeOffset)domainEvent.OccurredOn).ToUnixTimeSeconds());
-            properties.Type = domainEvent.EventType;
+            var properties = new BasicProperties
+            {
+                Persistent = true,
+                MessageId = domainEvent.EventId,
+                Timestamp = new AmqpTimestamp(((DateTimeOffset)domainEvent.OccurredOn).ToUnixTimeSeconds()),
+                Type = domainEvent.EventType
+            };
 
             if (!string.IsNullOrWhiteSpace(domainEvent.CorrelationId))
             {
                 properties.CorrelationId = domainEvent.CorrelationId;
             }
-
-            _channel.BasicPublish(
+      
+            await _channel.BasicPublishAsync(
                 exchange: _exchangeName,
                 routingKey: topic,
+                true,
                 basicProperties: properties,
-                body: body);
-
-            await Task.CompletedTask;
+                body: body,
+                cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
@@ -84,9 +93,24 @@ public class RabbitMQEventPublisher : EventPublisherBase, IDisposable
         }
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        if (_channel != null)
+        {
+            await _channel.CloseAsync();
+            _channel.Dispose();
+        }
+
+        if (_connection != null)
+        {
+            await _connection.CloseAsync();
+            _connection.Dispose();
+        }
+    }
+
+    // Manter compatibilidade com IDisposable
     public void Dispose()
     {
-        _channel?.Dispose();
-        _connection?.Dispose();
+        DisposeAsync().AsTask().Wait();
     }
 }

@@ -2,17 +2,14 @@
 using bks.sdk.Observability.Logging;
 using bks.sdk.Observability.Tracing;
 using bks.sdk.Processing.Mediator.Abstractions;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
+
 
 namespace bks.sdk.Processing.Mediator.Handlers;
 
-public abstract class BaseRequestHandler<TRequest, TResponse> : IRequestHandler<TRequest, TResponse>
-    where TRequest : IRequest<TResponse>
+public abstract class BaseRequestHandler<TRequest, TResponse> : IBKSRequestHandler<TRequest, TResponse>
+    where TRequest : IBKSRequest<TResponse>
 {
     protected readonly IBKSLogger Logger;
     protected readonly IBKSTracer Tracer;

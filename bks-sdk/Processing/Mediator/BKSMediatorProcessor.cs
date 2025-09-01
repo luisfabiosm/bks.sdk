@@ -1,22 +1,18 @@
 ﻿using bks.sdk.Common.Results;
 using bks.sdk.Processing.Abstractions;
 using bks.sdk.Processing.Mediator.Abstractions;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
 
 namespace bks.sdk.Processing.Mediator;
 
-public class BKSMediatorProcessor<TRequest, TResponse> : IMediatorProcessor<TRequest, TResponse>
-    where TRequest : class, IRequest<TResponse>
+public class BKSMediatorProcessor<TRequest, TResponse> : IBKSMediatorProcessor<TRequest, TResponse>
+    where TRequest : class, IBKSRequest<TResponse>
 {
-    private readonly IMediator _mediator;
+    private readonly IBKSMediator _mediator;
 
     public string ProcessorName => "MediatorProcessor";
 
-    public BKSMediatorProcessor(IMediator mediator)
+    public BKSMediatorProcessor(IBKSMediator mediator)
     {
         _mediator = mediator;
     }

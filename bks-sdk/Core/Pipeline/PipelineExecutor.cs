@@ -1,19 +1,12 @@
 ﻿using bks.sdk.Common.Results;
 using bks.sdk.Core.Configuration;
-using bks.sdk.Core.Pipeline.bks.sdk.Core.Pipeline.Steps;
-using bks.sdk.Core.Pipeline.bks.sdk.Core.Pipeline.Steps.bks.sdk.Core.Pipeline.Steps;
-using bks.sdk.Core.Pipeline.bks.sdk.Core.Pipeline.Steps.bks.sdk.Core.Pipeline.Steps.bks.sdk.Core.Pipeline.Steps;
-using bks.sdk.Core.Pipeline.bks.sdk.Core.Pipeline.Steps.bks.sdk.Core.Pipeline.Steps.bks.sdk.Core.Pipeline.Steps.bks.sdk.Core.Pipeline.Steps;
+using bks.sdk.Core.Pipeline.Steps;
+using bks.sdk.Events.Abstractions;
+using bks.sdk.Events.Pipeline;
 using bks.sdk.Observability.Logging;
 using bks.sdk.Observability.Tracing;
-using bks.sdk.Processing.Transactions;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace bks.sdk.Core.Pipeline;
 
@@ -42,7 +35,7 @@ public class PipelineExecutor : IPipelineExecutor
     public async Task<Result<TResponse>> ExecuteAsync<TRequest, TResponse>(
         TRequest request,
         CancellationToken cancellationToken = default)
-        where TRequest : class
+        where TRequest : class where TResponse : class
     {
         var correlationId = Guid.NewGuid().ToString("N");
         var context = new PipelineContext<TRequest>(request, correlationId, cancellationToken);
@@ -119,7 +112,7 @@ public class PipelineExecutor : IPipelineExecutor
 
     private async Task<Result<TResponse>> ExecutePipelineSteps<TRequest, TResponse>(
         IPipelineContext<TRequest> context)
-        where TRequest : class
+        where TRequest : class where TResponse : class
     {
         var steps = GetOrderedPipelineSteps<TRequest, TResponse>();
 
@@ -158,7 +151,7 @@ public class PipelineExecutor : IPipelineExecutor
     }
 
     private List<IPipelineStep<TRequest, TResponse>> GetOrderedPipelineSteps<TRequest, TResponse>()
-        where TRequest : class
+        where TRequest : class where TResponse : class
     {
         var steps = new List<IPipelineStep<TRequest, TResponse>>();
 

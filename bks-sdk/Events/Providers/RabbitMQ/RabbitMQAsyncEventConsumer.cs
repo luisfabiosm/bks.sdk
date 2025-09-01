@@ -1,5 +1,4 @@
-﻿using bks.sdk.Events.Abstractions;
-using bks.sdk.Observability.Logging;
+﻿using bks.sdk.Observability.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
@@ -8,30 +7,52 @@ using System.Text.Json;
 namespace bks.sdk.Events.Providers.RabbitMQ;
 
 
-public class RabbitMQAsyncEventConsumer<TEvent> : AsyncEventingBasicConsumer
+public class RabbitMQAsyncEventConsumer<TEvent> : IAsyncBasicConsumer
     where TEvent : IDomainEvent
 {
-    private readonly Func<TEvent, CancellationToken, Task> _handler;
-    private readonly IBKSLogger _logger;
+    private readonly Func<TEvent, CancellationToken, Task> _bkshandler;
+    private readonly IBKSLogger _bkslogger;
+    private readonly IChannel _bkschannel;
+
+    // Propriedade obrigatória da interface IAsyncBasicConsumer
+    public IChannel Channel => _bkschannel;
+
+    public event AsyncEventHandler<ConsumerEventArgs>? ConsumerCancelled;
 
     public RabbitMQAsyncEventConsumer(
-        IModel channel,
+        IChannel channel,
         Func<TEvent, CancellationToken, Task> handler,
         IBKSLogger logger)
-        : base(channel)
     {
-        _handler = handler;
-        _logger = logger;
+        _bkschannel = channel;
+        _bkshandler = handler;
+        _bkslogger = logger;
     }
 
-    public override async Task HandleBasicDeliver(
+    public async Task HandleBasicCancelAsync(string consumerTag, CancellationToken cancellationToken = default)
+    {
+        await Task.CompletedTask;
+    }
+
+    public async Task HandleBasicCancelOkAsync(string consumerTag, CancellationToken cancellationToken = default)
+    {
+        await Task.CompletedTask;
+    }
+
+    public async Task HandleBasicConsumeOkAsync(string consumerTag, CancellationToken cancellationToken = default)
+    {
+        await Task.CompletedTask;
+    }
+
+    public async Task HandleBasicDeliverAsync(
         string consumerTag,
         ulong deliveryTag,
         bool redelivered,
         string exchange,
         string routingKey,
-        IBasicProperties properties,
-        ReadOnlyMemory<byte> body)
+        IReadOnlyBasicProperties properties,
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -41,23 +62,30 @@ public class RabbitMQAsyncEventConsumer<TEvent> : AsyncEventingBasicConsumer
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             });
 
-            if (eventData?.Data != null)
+            if (eventData.Data != null)
             {
-                await _handler(eventData.Data, CancellationToken.None);
+                await _bkshandler(eventData.Data, cancellationToken);
             }
 
             // ACK da mensagem
-            Model.BasicAck(deliveryTag, false);
+            await _bkschannel.BasicAckAsync(deliveryTag, false, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.Error($"Erro ao processar mensagem RabbitMQ: {ex.Message}");
+            _bkslogger.Error($"Erro ao processar mensagem RabbitMQ: {ex.Message}");
 
             // NACK da mensagem (rejeita sem requeue se já foi redelivered)
-            Model.BasicNack(deliveryTag, false, !redelivered);
+            await _bkschannel.BasicNackAsync(deliveryTag, false, !redelivered, cancellationToken);
         }
     }
 
+    public async Task HandleChannelShutdownAsync(object channel, ShutdownEventArgs reason)
+    {
+        _bkslogger.Warn($"RabbitMQ channel shutdown: {reason.ReplyText}");
+        await Task.CompletedTask;
+    }
+
+ 
     private class EventWrapper<T>
     {
         public string? EventId { get; set; }
@@ -67,4 +95,6 @@ public class RabbitMQAsyncEventConsumer<TEvent> : AsyncEventingBasicConsumer
         public Dictionary<string, object>? Metadata { get; set; }
         public T? Data { get; set; }
     }
+
 }
+

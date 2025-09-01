@@ -11,6 +11,6 @@ namespace bks.sdk.Processing.Factories;
 
 public interface IProcessorFactory
 {
-    IBusinessProcessor<TRequest, TResponse>? GetProcessor<TRequest, TResponse>(ProcessingMode mode)
+    IBKSBusinessProcessor<TRequest, TResponse>? GetProcessor<TRequest, TResponse>(ProcessingMode mode)
         where TRequest : class;
 }

@@ -1,17 +1,15 @@
-﻿using bks.sdk.Common.Results;
+﻿using bks.sdk.Common.Enums;
+using bks.sdk.Common.Results;
 using bks.sdk.Core.Configuration;
-using bks.sdk.Core.Pipeline.Steps.bks.sdk.Core.Pipeline.Steps.bks.sdk.Core.Extensions.bks.sdk.Core.Initialization;
 using bks.sdk.Observability.Logging;
+using bks.sdk.Processing.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace bks.sdk.Core.Pipeline.Steps;
 
 public class ProcessingStep<TRequest, TResponse> : BasePipelineStep<TRequest, TResponse>
+    where TRequest : class
+    where TResponse : class
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly BKSFrameworkSettings _settings;
@@ -65,7 +63,7 @@ public class ProcessingStep<TRequest, TResponse> : BasePipelineStep<TRequest, TR
         TRequest request,
         CancellationToken cancellationToken)
     {
-        var processor = _serviceProvider.GetService<IMediatorProcessor<TRequest, TResponse>>();
+        var processor = _serviceProvider.GetService<IBKSMediatorProcessor<TRequest, TResponse>>();
 
         if (processor == null)
         {
@@ -79,7 +77,7 @@ public class ProcessingStep<TRequest, TResponse> : BasePipelineStep<TRequest, TR
         TRequest request,
         CancellationToken cancellationToken)
     {
-        var processor = _serviceProvider.GetService<ITransactionProcessor<TRequest, TResponse>>();
+        var processor = _serviceProvider.GetService<IBKSTransactionProcessor<TRequest, TResponse>>();
 
         if (processor == null)
         {

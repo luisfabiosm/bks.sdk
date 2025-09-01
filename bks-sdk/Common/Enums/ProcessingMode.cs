@@ -6,8 +6,9 @@ using System.Threading.Tasks;
 
 namespace bks.sdk.Common.Enums;
 
+
 public enum ProcessingMode
 {
-    Mediator,
-    TransactionProcessor
+    Mediator = 1,
+    TransactionProcessor = 2
 }

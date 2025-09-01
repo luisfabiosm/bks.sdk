@@ -1,4 +1,5 @@
-﻿using bks.sdk.Observability.Logging;
+﻿using bks.sdk.Common.Enums;
+using bks.sdk.Observability.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

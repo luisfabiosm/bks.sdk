@@ -19,13 +19,13 @@ public class ProcessorFactory : IProcessorFactory
         _serviceProvider = serviceProvider;
     }
 
-    public IBusinessProcessor<TRequest, TResponse>? GetProcessor<TRequest, TResponse>(ProcessingMode mode)
+    public IBKSBusinessProcessor<TRequest, TResponse>? GetProcessor<TRequest, TResponse>(ProcessingMode mode)
         where TRequest : class
     {
         return mode switch
         {
-            ProcessingMode.Mediator => _serviceProvider.GetService<IMediatorProcessor<TRequest, TResponse>>(),
-            ProcessingMode.TransactionProcessor => _serviceProvider.GetService<ITransactionProcessor<TRequest, TResponse>>(),
+            ProcessingMode.Mediator => _serviceProvider.GetService<IBKSMediatorProcessor<TRequest, TResponse>>(),
+            ProcessingMode.TransactionProcessor => _serviceProvider.GetService<IBKSTransactionProcessor<TRequest, TResponse>>(),
             _ => null
         };
     }

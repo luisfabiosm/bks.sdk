@@ -1,14 +1,13 @@
 ﻿using bks.sdk.Common.Results;
+using bks.sdk.Events.Abstractions;
+using bks.sdk.Events.Pipeline;
 using bks.sdk.Observability.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
 
 namespace bks.sdk.Core.Pipeline.Steps;
 
-public class PreProcessingStep<TRequest, TResponse> : BasePipelineStep<TRequest, TResponse>
+public class PreProcessingStep<TRequest, TResponse> : BasePipelineStep<TRequest, TResponse> where TRequest : class
+    where TResponse : class
 {
     private readonly IEventPublisher _eventPublisher;
     private readonly IBKSLogger _logger;

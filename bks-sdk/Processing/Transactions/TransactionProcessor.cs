@@ -5,7 +5,7 @@ using bks.sdk.Processing.Transactions.Processors;
 
 namespace bks.sdk.Processing.Transactions;
 
-public class TransactionProcessor<TTransaction, TResponse> : ITransactionProcessor<TTransaction, TResponse>
+public class TransactionProcessor<TTransaction, TResponse> : IBKSTransactionProcessor<TTransaction, TResponse>
     where TTransaction : BaseTransaction
 {
     private readonly IServiceProvider _serviceProvider;

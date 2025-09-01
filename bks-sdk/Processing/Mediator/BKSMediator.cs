@@ -1,15 +1,11 @@
 ﻿using bks.sdk.Common.Results;
 using bks.sdk.Observability.Logging;
 using bks.sdk.Processing.Mediator.Abstractions;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
 
 namespace bks.sdk.Processing.Mediator;
 
-public class BKSMediator : IMediator
+public class BKSMediator : IBKSMediator
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly IBKSLogger _logger;
@@ -21,7 +17,7 @@ public class BKSMediator : IMediator
     }
 
     public async Task<Result<TResponse>> SendAsync<TResponse>(
-        IRequest<TResponse> request,
+        IBKSRequest<TResponse> request,
         CancellationToken cancellationToken = default)
     {
         if (request == null)
@@ -31,7 +27,7 @@ public class BKSMediator : IMediator
 
         var requestType = request.GetType();
         var responseType = typeof(TResponse);
-        var handlerType = typeof(IRequestHandler<,>).MakeGenericType(requestType, responseType);
+        var handlerType = typeof(IBKSRequestHandler<,>).MakeGenericType(requestType, responseType);
 
         _logger.Trace($"Procurando handler para: {requestType.Name} -> {responseType.Name}");
 

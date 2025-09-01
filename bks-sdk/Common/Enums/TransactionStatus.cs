@@ -4,16 +4,17 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace bks.sdk.Common.Enums
+namespace bks.sdk.Common.Enums;
+
+public enum TransactionStatus
 {
-    public enum TransactionStatus
-    {
-        Created = 0,
-        PreProcessing = 1,
-        Processing = 2,
-        PostProcessing = 3,
-        Completed = 4,
-        Failed = 5,
-        Cancelled = 6
-    }
+    Created = 0,
+    Validating = 1,
+    PreProcessing = 2,
+    Processing = 3,
+    PostProcessing = 4,
+    Completed = 5,
+    Failed = 6,
+    Cancelled = 7,
+    TimedOut = 8
 }

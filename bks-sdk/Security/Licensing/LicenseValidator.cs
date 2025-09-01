@@ -2,7 +2,6 @@
 using bks.sdk.Core.Configuration;
 using bks.sdk.Security.Encryption;
 using bks.sdk.Security.Licensing;
-using bks.sdk.Security.Licensing.bks.sdk.Security.Encryption;
 using System.Text;
 using System.Text.Json;
 

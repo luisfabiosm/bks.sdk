@@ -24,7 +24,6 @@ public class KafkaEventPublisher : EventPublisherBase, IDisposable
             {
                 BootstrapServers = Settings.Events.ConnectionString,
                 Acks = Acks.All,
-                Retries = 3,
                 EnableIdempotence = true
             };
 

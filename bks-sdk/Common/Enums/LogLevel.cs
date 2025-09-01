@@ -7,11 +7,11 @@ using System.Threading.Tasks;
 namespace bks.sdk.Common.Enums;
 public enum LogLevel
 {
-    Trace,
-    Debug,
-    Information,
-    Warning,
-    Error,
-    Fatal
+    Trace = 1,
+    Debug = 2,
+    Information = 3,
+    Warning = 4,
+    Error = 5,
+    Fatal = 6
 }
 
