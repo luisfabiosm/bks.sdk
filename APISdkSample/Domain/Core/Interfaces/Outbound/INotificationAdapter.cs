@@ -1,4 +1,4 @@
-﻿using bks.sdk.Transactions;
+﻿using bks.sdk.Processing.Transactions.Abstractions;
 using Domain.Core.Models.Entities;
 using Domain.Core.Transactions;
 

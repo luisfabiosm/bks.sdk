@@ -1,6 +1,6 @@
 ﻿using bks.sdk.Cache;
 using bks.sdk.Observability.Logging;
-using bks.sdk.Transactions;
+using bks.sdk.Processing.Transactions.Abstractions;
 using Domain.Core.Enums;
 using Domain.Core.Interfaces.Domain;
 using Domain.Core.Interfaces.Outbound;

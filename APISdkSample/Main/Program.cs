@@ -1,6 +1,6 @@
 using Adapters.Inbound.API.Extensions;
 using bks.sdk.Core.Initialization;
-using bks.sdk.Core.Middlewares;
+using bks.sdk.Middlewares;
 
 
 var builder = WebApplication.CreateBuilder(args);
