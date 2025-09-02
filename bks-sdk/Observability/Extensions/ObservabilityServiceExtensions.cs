@@ -36,7 +36,7 @@ public static class ObservabilityServiceExtensions
 
         // Registrar serviços de observabilidade
         services.AddSingleton<ICorrelationContextAccessor, CorrelationContextAccessor>();
-        services.AddScoped<IPerformanceTracker, PerformanceTracker>();
+        services.AddSingleton<IPerformanceTracker, PerformanceTracker>();
 
         return services;
     }

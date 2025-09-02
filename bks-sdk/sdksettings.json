@@ -8,7 +8,8 @@
       "Database": 0
     },
     "Jwt": {
-      "SecretKey": "super-secret-jwt-key-bks-sdk-2025",
+      //yJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJia3Muc2RrIiwiYXVkIjoiYXBpLXVzZXJzIiwiaWF0IjoxNzU2ODM1MjUyLCJleHAiOjE3NTY5MjE2NTJ9.AY30Mu8i_xMO_8jvTiXkrMSbajao9StNfI0urSifIBg
+      "SecretKey": "super-secret-jwt-key-bks-sdk-2025-Development",
       "Issuer": "bks.sdk",
       "Audience": "api-users",
       "ExpirationInMinutes": 60
