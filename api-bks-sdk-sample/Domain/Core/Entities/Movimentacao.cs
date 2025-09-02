@@ -1,0 +1,22 @@
+﻿using Domain.Core.Enums;
+
+namespace Domain.Core.Entities
+{
+    public record Movimentacao
+    {
+        public string Id { get; init; } = string.Empty;
+        public string ContaId { get; init; } = string.Empty;
+        public TipoMovimentacao Tipo { get; init; }
+        public decimal Valor { get; init; }
+        public string Descricao { get; init; } = string.Empty;
+        public DateTime DataMovimentacao { get; init; }
+        public decimal SaldoAnterior { get; init; }
+        public decimal SaldoPosterior { get; init; }
+        public string? Referencia { get; init; }
+        public Dictionary<string, object> Metadata { get; init; } = new();
+
+        public bool IsCredito => Tipo == TipoMovimentacao.Credito;
+        public bool IsDebito => Tipo == TipoMovimentacao.Debito;
+    }
+
+}

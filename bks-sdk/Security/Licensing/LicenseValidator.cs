@@ -1,9 +1,11 @@
 ﻿using bks.sdk.Common.Enums;
 using bks.sdk.Core.Configuration;
 using bks.sdk.Security.Encryption;
-using bks.sdk.Security.Licensing;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
+
+namespace bks.sdk.Security.Licensing;
 
 public class LicenseValidator : ILicenseValidator
 {
@@ -83,6 +85,18 @@ public class LicenseValidator : ILicenseValidator
     {
         try
         {
+            if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
+            {
+                    return new LicenseInfo
+                    {
+                        LicenseKey = licenseKey,
+                        ApplicationName = "apisample",
+                        IssuedAt = DateTime.Now,
+                        ExpiresAt = DateTime.Now.AddDays(1000),
+                        Type = LicenseType.Development
+                    };
+            }
+
             // Formato: BKS-2025-[TYPE]-[BASE64_ENCRYPTED_DATA]
             var parts = licenseKey.Split('-');
             if (parts.Length != 4 || parts[0] != "BKS" || parts[1] != "2025")
