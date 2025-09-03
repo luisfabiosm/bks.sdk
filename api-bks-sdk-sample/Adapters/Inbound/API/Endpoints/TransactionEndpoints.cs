@@ -62,6 +62,7 @@ namespace Adapters.Inbound.API.Endpoints
             .WithSummary("Processar crédito usando Mediator Pattern")
             .WithDescription("Este endpoint utiliza o padrão Mediator do BKS SDK para processar transações de crédito");
 
+
             // Endpoint de DÉBITO usando TRANSACTION PROCESSOR
             transactiongroup.MapPost("/debito", async (
                 DebitoRequestDto request,
