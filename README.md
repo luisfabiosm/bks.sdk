@@ -14,7 +14,6 @@ Um framework robusto e modular para .NET 8 que oferece uma base sólida para des
 - 📊 **Observabilidade Nativa**: OpenTelemetry, Serilog e tracing distribuído
 - 🔄 **Processamento de Transações**: Pipeline seguro com tokenização e eventos
 - 📡 **Sistema de Eventos**: Suporte para RabbitMQ e Kafka
-- 💾 **Cache Distribuído**: Redis e In-Memory com interface unificada
 - 🧩 **Mediator Pattern**: Implementação própria para CQRS
 - 🏗️ **Clean Architecture**: Separação clara de responsabilidades
 - 🔒 **Segurança**: Criptografia, correlação de transações e auditoria
