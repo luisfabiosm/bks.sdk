@@ -44,12 +44,23 @@ public class ProcessingStep<TRequest, TResponse> : BasePipelineStep<TRequest, TR
             {
                 result = await ProcessViaMediatorAsync(request, cancellationToken);
             }
-            else
+            else if (_settings.Processing.Mode == ProcessingMode.TransactionProcessor)
             {
                 result = await ProcessViaTransactionProcessorAsync(request, cancellationToken);
             }
+            else 
+            {
+                if (request is BaseTransaction)
+                {
+                    result = await ProcessViaTransactionProcessorAsync(request, cancellationToken);
+                }
+                else
+                {
+                    result = await ProcessViaMediatorAsync(request, cancellationToken);
+                }
+            }
 
-            await OnStepCompleted(request, result);
+                await OnStepCompleted(request, result);
             return result;
         }
         catch (Exception ex)
